@@ -1245,7 +1245,7 @@ a2a add "${inviteUrl}" "${ownerText || 'friend'}" && a2a call "${ownerText || 'f
 
     if (!target || !message) {
       console.error('Usage: a2a call <contact_or_url> <message>');
-      console.error('  --multi         Enable multi-turn conversation');
+      console.error('  --single        Single-turn call (one message, one response)');
       console.error('  --min-turns N   Minimum turns before close (default: 8)');
       console.error('  --max-turns N   Maximum turns (default: 25)');
       process.exit(1);
@@ -1262,10 +1262,10 @@ a2a add "${inviteUrl}" "${ownerText || 'friend'}" && a2a call "${ownerText || 'f
       }
     }
 
-    const multi = Boolean(args.flags.multi);
+    const single = Boolean(args.flags.single);
     const callerName = args.flags.name || 'CLI User';
 
-    if (multi) {
+    if (!single) {
       // Multi-turn conversation via ConversationDriver
       const { ConversationDriver } = require('../src/lib/conversation-driver');
       const { createRuntimeAdapter } = require('../src/lib/runtime-adapter');
@@ -2292,8 +2292,8 @@ Conversations:
   conversations end <id>   End and summarize conversation
 
 Calling:
-  call <contact|url> <msg>  Call a contact (or invite URL)
-    --multi           Enable multi-turn conversation
+  call <contact|url> <msg>  Call a contact (multi-turn by default)
+    --single          Single-turn call (one message, one response)
     --min-turns N     Minimum turns before close (default: 8)
     --max-turns N     Maximum turns (default: 25)
   ping <url>          Check if agent is reachable
