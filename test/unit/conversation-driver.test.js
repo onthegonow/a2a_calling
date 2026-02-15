@@ -433,4 +433,262 @@ module.exports = function (test, assert, helpers) {
         'Later turns should not be in handshake');
     }
   });
+
+  // ── New Termination Pattern Tests ───────────────────────────
+
+  test('detectRemoteTermination catches bare END_CALL without brackets', () => {
+    const { detectRemoteTermination } = require('../../src/lib/conversation-driver');
+
+    assert.equal(detectRemoteTermination('END_CALL'), true);
+    assert.equal(detectRemoteTermination('END CALL'), true);
+    assert.equal(detectRemoteTermination('Done. END_CALL'), true);
+    assert.equal(detectRemoteTermination('end_call'), true);
+  });
+
+  test('detectRemoteTermination catches "call closed"', () => {
+    const { detectRemoteTermination } = require('../../src/lib/conversation-driver');
+
+    assert.equal(detectRemoteTermination('Call closed. Thank you.'), true);
+    assert.equal(detectRemoteTermination('The call closed successfully.'), true);
+    assert.equal(detectRemoteTermination('call closed'), true);
+  });
+
+  test('detectRemoteTermination catches "wrapping up"', () => {
+    const { detectRemoteTermination } = require('../../src/lib/conversation-driver');
+
+    assert.equal(detectRemoteTermination('Wrapping up now.'), true);
+    assert.equal(detectRemoteTermination("I'm wrapping up this conversation."), true);
+    assert.equal(detectRemoteTermination('wrapping up'), true);
+  });
+
+  test('detectRemoteTermination catches "no further" / "[No further"', () => {
+    const { detectRemoteTermination } = require('../../src/lib/conversation-driver');
+
+    assert.equal(detectRemoteTermination('[No further responses needed]'), true);
+    assert.equal(detectRemoteTermination('[No further communication]'), true);
+    assert.equal(detectRemoteTermination('No further action required.'), true);
+    assert.equal(detectRemoteTermination('no further questions'), true);
+  });
+
+  test('detectRemoteTermination catches very short/empty responses', () => {
+    const { detectRemoteTermination } = require('../../src/lib/conversation-driver');
+
+    // Single dot
+    assert.equal(detectRemoteTermination('.'), true);
+    // Single character
+    assert.equal(detectRemoteTermination('-'), true);
+    // Whitespace-only (trimmed to empty)
+    assert.equal(detectRemoteTermination('   '), true);
+    // Empty string still returns false (falsy early check)
+    assert.equal(detectRemoteTermination(''), false);
+    // Null still returns false
+    assert.equal(detectRemoteTermination(null), false);
+    // Normal short text should NOT trigger
+    assert.equal(detectRemoteTermination('OK sure'), false);
+    assert.equal(detectRemoteTermination('Hi'), false);
+  });
+
+  // ── inferStateProgression closeSignal Tests ─────────────────
+
+  test('inferStateProgression sets closeSignal in converging phase', () => {
+    const { inferStateProgression } = require('../../src/lib/conversation-driver');
+
+    // Already in converging phase
+    const convergingState = { phase: 'converging', overlapScore: 0.3, confidence: 0.7 };
+    const patch = inferStateProgression(convergingState, 'Some text', 10);
+    assert.equal(patch.closeSignal, true, 'closeSignal should be true in converging phase');
+  });
+
+  test('inferStateProgression sets closeSignal when transitioning to converging', () => {
+    const { inferStateProgression } = require('../../src/lib/conversation-driver');
+
+    // deepening phase at turn 8 → transitions to converging
+    const deepeningState = { phase: 'deepening', overlapScore: 0.3, confidence: 0.5 };
+    const patch = inferStateProgression(deepeningState, 'Wrapping things up', 8);
+    assert.equal(patch.phase, 'converging');
+    assert.equal(patch.closeSignal, true, 'closeSignal should be set on transition to converging');
+  });
+
+  test('inferStateProgression does NOT set closeSignal in earlier phases', () => {
+    const { inferStateProgression } = require('../../src/lib/conversation-driver');
+
+    const handshake = { phase: 'handshake', overlapScore: 0.15, confidence: 0.25 };
+    const p1 = inferStateProgression(handshake, 'Hello', 1);
+    assert.equal(p1.closeSignal, undefined, 'No closeSignal in handshake');
+
+    const exploring = { phase: 'exploring', overlapScore: 0.2, confidence: 0.3 };
+    const p2 = inferStateProgression(exploring, 'Tell me more', 3);
+    assert.equal(p2.closeSignal, undefined, 'No closeSignal in exploring');
+
+    const deepening = { phase: 'deepening', overlapScore: 0.3, confidence: 0.5 };
+    const p3 = inferStateProgression(deepening, 'Very interesting', 6);
+    assert.equal(p3.closeSignal, undefined, 'No closeSignal in deepening');
+  });
+
+  // ── Overlap Flatline Detection Tests ────────────────────────
+
+  test('driver detects overlap flatline and terminates in converging phase', async () => {
+    const { ConversationDriver } = require('../../src/lib/conversation-driver');
+
+    // Remote always responds with low-engagement text, can_continue stays true
+    // After turn 8, phase will be converging. Overlap will flatline at ~0.10.
+    const remoteResponses = Array.from({ length: 20 }, (_, i) => ({
+      response: 'ok',
+      can_continue: true,
+      conversation_id: 'conv_flatline'
+    }));
+
+    const runtimeResponses = Array.from({ length: 20 }, () => 'Plain text reply');
+    const mockRuntime = createMockRuntime(runtimeResponses);
+
+    const turnInfo = [];
+    const driver = new ConversationDriver({
+      runtime: mockRuntime,
+      agentContext: { name: 'test-agent', owner: 'tester' },
+      caller: { name: 'test-caller' },
+      endpoint: 'a2a://localhost:9999/fake_token',
+      minTurns: 8,
+      maxTurns: 20,
+      onTurn: (info) => turnInfo.push(info)
+    });
+
+    const mockClient = createMockClient(remoteResponses);
+    driver.client = mockClient;
+
+    const result = await driver.run('Hello!');
+
+    // Should terminate well before maxTurns (20) due to flatline + closeSignal
+    assert.ok(result.turnCount < 20,
+      `Expected early termination, got ${result.turnCount} turns`);
+    assert.ok(result.collabState.closeSignal,
+      'closeSignal should be true from flatline or converging phase');
+    assert.ok(mockClient.getEndCalled());
+  });
+
+  test('driver terminates on closeSignal when converging phase reached with minTurns met', async () => {
+    const { ConversationDriver } = require('../../src/lib/conversation-driver');
+
+    // Simulate conversation that reaches converging phase (turn 8+)
+    // With inferStateProgression now setting closeSignal in converging,
+    // the driver should stop once minTurns is met
+    const remoteResponses = Array.from({ length: 15 }, (_, i) => ({
+      response: `Topic ${i + 1}, tell me more about collaboration opportunities?`,
+      can_continue: true,
+      conversation_id: 'conv_close'
+    }));
+
+    const runtimeResponses = Array.from({ length: 15 }, (_, i) =>
+      `Plain text reply ${i + 1}`
+    );
+    const mockRuntime = createMockRuntime(runtimeResponses);
+
+    const driver = new ConversationDriver({
+      runtime: mockRuntime,
+      agentContext: { name: 'test-agent', owner: 'tester' },
+      caller: { name: 'test-caller' },
+      endpoint: 'a2a://localhost:9999/fake_token',
+      minTurns: 8,
+      maxTurns: 15
+    });
+
+    const mockClient = createMockClient(remoteResponses);
+    driver.client = mockClient;
+
+    const result = await driver.run('Hello!');
+
+    // Phase should reach converging and closeSignal should fire
+    assert.equal(result.collabState.phase, 'converging',
+      `Expected converging phase, got ${result.collabState.phase}`);
+    assert.ok(result.collabState.closeSignal, 'closeSignal should be true');
+    // Should stop before maxTurns since closeSignal fires at converging (turn 8+)
+    // and minTurns is 8
+    assert.ok(result.turnCount < 15,
+      `Expected termination before maxTurns, got ${result.turnCount} turns`);
+  });
+
+  // ── Integration: Full Scenario from Bug Report ──────────────
+
+  test('driver terminates on bare END_CALL even when can_continue is true', async () => {
+    const { ConversationDriver } = require('../../src/lib/conversation-driver');
+
+    const remoteResponses = [
+      { response: 'Hello there!', can_continue: true, conversation_id: 'conv_endcall' },
+      { response: 'END_CALL', can_continue: true, conversation_id: 'conv_endcall' },
+      { response: 'Should not reach', can_continue: true, conversation_id: 'conv_endcall' }
+    ];
+
+    const runtimeResponses = ['Reply 1', 'Reply 2', 'Reply 3'];
+    const mockRuntime = createMockRuntime(runtimeResponses);
+
+    const driver = new ConversationDriver({
+      runtime: mockRuntime,
+      agentContext: { name: 'test-agent', owner: 'tester' },
+      caller: { name: 'test-caller' },
+      endpoint: 'a2a://localhost:9999/fake_token',
+      minTurns: 1,
+      maxTurns: 10
+    });
+
+    const mockClient = createMockClient(remoteResponses);
+    driver.client = mockClient;
+
+    const result = await driver.run('Hello!');
+    assert.equal(result.turnCount, 2, `Expected 2 turns, got ${result.turnCount}`);
+  });
+
+  test('driver terminates on single dot response', async () => {
+    const { ConversationDriver } = require('../../src/lib/conversation-driver');
+
+    const remoteResponses = [
+      { response: 'Hello there!', can_continue: true, conversation_id: 'conv_dot' },
+      { response: '.', can_continue: true, conversation_id: 'conv_dot' },
+      { response: 'Should not reach', can_continue: true, conversation_id: 'conv_dot' }
+    ];
+
+    const runtimeResponses = ['Reply 1', 'Reply 2', 'Reply 3'];
+    const mockRuntime = createMockRuntime(runtimeResponses);
+
+    const driver = new ConversationDriver({
+      runtime: mockRuntime,
+      agentContext: { name: 'test-agent', owner: 'tester' },
+      caller: { name: 'test-caller' },
+      endpoint: 'a2a://localhost:9999/fake_token',
+      minTurns: 1,
+      maxTurns: 10
+    });
+
+    const mockClient = createMockClient(remoteResponses);
+    driver.client = mockClient;
+
+    const result = await driver.run('Hello!');
+    assert.equal(result.turnCount, 2, `Expected 2 turns, got ${result.turnCount}`);
+  });
+
+  test('driver terminates on "Call closed" response', async () => {
+    const { ConversationDriver } = require('../../src/lib/conversation-driver');
+
+    const remoteResponses = [
+      { response: 'Hello there!', can_continue: true, conversation_id: 'conv_closed' },
+      { response: 'Call closed. Thank you for connecting.', can_continue: true, conversation_id: 'conv_closed' },
+      { response: 'Should not reach', can_continue: true, conversation_id: 'conv_closed' }
+    ];
+
+    const runtimeResponses = ['Reply 1', 'Reply 2', 'Reply 3'];
+    const mockRuntime = createMockRuntime(runtimeResponses);
+
+    const driver = new ConversationDriver({
+      runtime: mockRuntime,
+      agentContext: { name: 'test-agent', owner: 'tester' },
+      caller: { name: 'test-caller' },
+      endpoint: 'a2a://localhost:9999/fake_token',
+      minTurns: 1,
+      maxTurns: 10
+    });
+
+    const mockClient = createMockClient(remoteResponses);
+    driver.client = mockClient;
+
+    const result = await driver.run('Hello!');
+    assert.equal(result.turnCount, 2, `Expected 2 turns, got ${result.turnCount}`);
+  });
 };

@@ -33,6 +33,11 @@ const TERMINATION_PATTERNS = [
   /\[DISCONNECT/i,
   /\[END.?CALL\]/i,
   /\[CLOSING\]/i,
+  /\bEND.?CALL\b/i,
+  /\bcall\s+closed\b/i,
+  /\bwrapping\s+up\b/i,
+  /\[No\s+further\b/i,
+  /\bno\s+further\b/i,
   /\bREFUSING\s+(TO\s+)?(CONTINU|RESPOND|ENGAG)/i,
   /\bcall\s+complet(ed|e)\b/i,
   /\bconversation\s+(is\s+)?(over|ended|closed|complet)/i,
@@ -43,6 +48,9 @@ const TERMINATION_PATTERNS = [
 
 function detectRemoteTermination(text) {
   if (!text || typeof text !== 'string') return false;
+  // Very short responses (single dot, empty-ish) indicate dead conversation
+  const trimmed = text.trim();
+  if (trimmed.length <= 1) return true;
   return TERMINATION_PATTERNS.some(pattern => pattern.test(text));
 }
 
@@ -81,6 +89,12 @@ function inferStateProgression(collabState, remoteText, turn) {
 
   // Confidence increases over turns
   patch.confidence = Math.min(0.9, 0.25 + turn * 0.08);
+
+  // In converging phase, signal close — conversation has run its natural course
+  const effectivePhase = patch.phase || collabState.phase;
+  if (effectivePhase === 'converging') {
+    patch.closeSignal = true;
+  }
 
   return patch;
 }
@@ -207,6 +221,7 @@ Be concise but specific. No filler.`;
     conversationId = `conv_${Date.now()}_local`;
 
     let nextMessage = openingMessage;
+    const overlapHistory = [];
 
     for (let turn = 0; turn < this.maxTurns; turn++) {
       // 1. Send message to remote
@@ -385,6 +400,21 @@ Be concise but specific. No filler.`;
         if (inferred.phase) collabState.phase = inferred.phase;
         if (inferred.overlapScore != null) collabState.overlapScore = inferred.overlapScore;
         if (inferred.confidence != null) collabState.confidence = inferred.confidence;
+        if (inferred.closeSignal != null) collabState.closeSignal = inferred.closeSignal;
+      }
+
+      // 6b. Overlap flatline detection — if overlap hasn't changed significantly
+      // for 3+ consecutive turns while in converging phase, the conversation is dead
+      overlapHistory.push(collabState.overlapScore);
+      if (collabState.phase === 'converging' && overlapHistory.length >= 3) {
+        const recent = overlapHistory.slice(-3);
+        const maxDelta = Math.max(
+          Math.abs(recent[1] - recent[0]),
+          Math.abs(recent[2] - recent[1])
+        );
+        if (maxDelta < 0.02) {
+          collabState.closeSignal = true;
+        }
       }
 
       // 7. Persist collab state to DB

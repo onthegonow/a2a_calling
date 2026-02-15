@@ -2037,60 +2037,173 @@ a2a add "${inviteUrl}" "${ownerText || 'friend'}" && a2a call "${ownerText || 'f
       }
     }
 
-    // Kill server by PID from config (detached process started by quickstart)
-    function killServerPid() {
+    // Check if a TCP port is currently occupied (async, fast)
+    function isPortOccupied(port) {
+      if (!port) return false;
+      const net = require('net');
+      return new Promise((resolve) => {
+        const socket = net.connect({ host: '127.0.0.1', port });
+        let settled = false;
+        const finish = (result) => {
+          if (settled) return;
+          settled = true;
+          try { socket.destroy(); } catch (e) {}
+          resolve(result);
+        };
+        socket.setTimeout(500, () => finish(false));
+        socket.once('connect', () => finish(true));
+        socket.once('error', () => finish(false));
+      });
+    }
+
+    // Find PID listening on a given port by parsing /proc/net/tcp6 (Linux)
+    function findPidOnPort(port) {
       try {
-        const { A2AConfig } = require('../src/lib/config');
-        const config = new A2AConfig();
-        const onboarding = config.getOnboarding();
-        const pid = onboarding.server_pid;
-        if (!pid) return { ok: true, skipped: true };
-
-        // Check if process is alive
-        try {
-          process.kill(pid, 0); // signal 0 = existence check
-        } catch (e) {
-          // Process doesn't exist — already dead
-          return { ok: true, skipped: true };
+        // Try fuser first (most reliable)
+        const fuserResult = spawnSync('fuser', [`${port}/tcp`], {
+          encoding: 'utf8', timeout: 3000, stdio: ['pipe', 'pipe', 'pipe']
+        });
+        if (fuserResult.status === 0 && fuserResult.stdout) {
+          const pids = fuserResult.stdout.trim().split(/\s+/).map(Number).filter(p => p > 0);
+          if (pids.length > 0) return pids;
         }
+      } catch (e) { /* fuser not available, fall through */ }
 
-        // Kill it
-        process.kill(pid, 'SIGTERM');
-
-        // Wait briefly and verify it's gone
-        const start = Date.now();
-        while (Date.now() - start < 3000) {
-          try {
-            process.kill(pid, 0);
-            spawnSync('sleep', ['0.1'], { timeout: 500 });
-          } catch (e) {
-            // Process is gone
-            return { ok: true, pid };
+      try {
+        // Fallback: parse /proc/net/tcp and /proc/net/tcp6
+        const portHex = port.toString(16).toUpperCase().padStart(4, '0');
+        const pids = [];
+        for (const proto of ['/proc/net/tcp', '/proc/net/tcp6']) {
+          let content;
+          try { content = fs.readFileSync(proto, 'utf8'); } catch (e) { continue; }
+          const lines = content.split('\n');
+          for (const line of lines) {
+            const parts = line.trim().split(/\s+/);
+            if (parts.length < 10) continue;
+            const localAddr = parts[1]; // e.g., 00000000:1F90
+            const localPort = localAddr.split(':')[1];
+            if (localPort && localPort.toUpperCase() === portHex) {
+              const inode = parts[9];
+              // Search /proc/*/fd/* for socket inodes
+              try {
+                const procDirs = fs.readdirSync('/proc').filter(d => /^\d+$/.test(d));
+                for (const pid of procDirs) {
+                  try {
+                    const fdDir = `/proc/${pid}/fd`;
+                    const fds = fs.readdirSync(fdDir);
+                    for (const fd of fds) {
+                      try {
+                        const link = fs.readlinkSync(`${fdDir}/${fd}`);
+                        if (link === `socket:[${inode}]`) {
+                          pids.push(Number(pid));
+                        }
+                      } catch (e) {}
+                    }
+                  } catch (e) {}
+                }
+              } catch (e) {}
+            }
           }
         }
+        if (pids.length > 0) return [...new Set(pids)];
+      } catch (e) { /* /proc parsing failed */ }
 
-        // Still alive after 3s — force kill
+      return [];
+    }
+
+    // Kill a specific PID with SIGTERM, wait, then SIGKILL if needed
+    function killPidSync(pid) {
+      try {
+        process.kill(pid, 0); // existence check
+      } catch (e) {
+        return { ok: true, skipped: true };
+      }
+
+      process.kill(pid, 'SIGTERM');
+      const start = Date.now();
+      while (Date.now() - start < 3000) {
         try {
-          process.kill(pid, 'SIGKILL');
-          return { ok: true, pid, forced: true };
+          process.kill(pid, 0);
+          spawnSync('sleep', ['0.1'], { timeout: 500 });
         } catch (e) {
           return { ok: true, pid };
         }
+      }
+
+      // Still alive — force kill
+      try {
+        process.kill(pid, 'SIGKILL');
+        // Brief wait for SIGKILL to take effect
+        spawnSync('sleep', ['0.2'], { timeout: 500 });
+        try {
+          process.kill(pid, 0);
+          return { ok: false, pid, error: `PID ${pid} survived SIGKILL` };
+        } catch (e) {
+          return { ok: true, pid, forced: true };
+        }
+      } catch (e) {
+        return { ok: true, pid };
+      }
+    }
+
+    // Kill server by PID from config (detached process started by quickstart)
+    // Then verify the port is actually freed; if not, find and kill whatever holds it.
+    async function killServerPid() {
+      let pid, serverPort;
+      try {
+        const { A2AConfig } = require('../src/lib/config');
+        const cfg = new A2AConfig();
+        const onboarding = cfg.getOnboarding();
+        pid = onboarding.server_pid;
+        serverPort = onboarding.server_port;
       } catch (err) {
         // Config read failed — not fatal, continue with pm2 path
         return { ok: true, skipped: true };
       }
+
+      // Step 1: Try to kill the PID from config
+      if (pid) {
+        killPidSync(pid);
+      }
+
+      // Step 2: Verify the port is freed
+      if (serverPort) {
+        const stillOccupied = await isPortOccupied(serverPort);
+        if (stillOccupied) {
+          // Port is still held — find and kill whatever is on it
+          const pids = findPidOnPort(serverPort);
+          let killedAny = false;
+          for (const p of pids) {
+            const result = killPidSync(p);
+            if (result.ok && !result.skipped) killedAny = true;
+          }
+
+          // Final check
+          const stillUp = await isPortOccupied(serverPort);
+          if (stillUp) {
+            return { ok: false, pid, port: serverPort, error: `Port ${serverPort} is still occupied after kill attempts` };
+          }
+          return { ok: true, pid, port: serverPort, portKill: killedAny };
+        }
+      }
+
+      return { ok: true, pid, port: serverPort, skipped: !pid };
     }
 
     process.stdout.write('Stopping server... ');
-    const pidResult = killServerPid();
+    const pidResult = await killServerPid();
     const stopped = pm2StopAndDelete('a2a');
     if (!pidResult.ok && !stopped.ok) {
       console.log('❌');
-      console.error(`  ${stopped.error}`);
+      console.error(`  ${pidResult.error || stopped.error}`);
       process.exit(1);
     }
-    console.log('✅');
+    if (!pidResult.ok) {
+      console.log('⚠️');
+      console.error(`  Warning: ${pidResult.error}`);
+    } else {
+      console.log('✅');
+    }
 
     let configOk = true;
     let dbOk = true;
