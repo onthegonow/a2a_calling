@@ -71,6 +71,13 @@ function getConvStore() {
 
 const store = new TokenStore();
 
+// Commands that should hard-fail with a clear error when not onboarded,
+// rather than falling through to the interactive quickstart flow.
+// These are outbound operations often invoked by agents/automation.
+const ONBOARDING_HARD_FAIL = new Set([
+  'call', 'ping', 'status'
+]);
+
 // ── enforceOnboarding ────────────────────────────────────────────────────
 // If onboarding is incomplete or the config is missing/invalid, run the
 // full quickstart flow inline — verbose, with direct stdio. The agent sees
@@ -89,6 +96,14 @@ function enforceOnboarding(command) {
   }
 
   if (!isOnboarded()) {
+    // For outbound commands (call, ping, status), fail immediately with
+    // a clear error instead of dumping onboarding prompts. This prevents
+    // calling agents from receiving walls of setup instructions.
+    if (ONBOARDING_HARD_FAIL.has(command)) {
+      console.error('❌ Onboarding not complete. Run `a2a quickstart` first to set up your agent.');
+      process.exit(1);
+    }
+
     // Run the full quickstart flow inline — verbose output, direct stdio.
     // This replaces the original command; after onboarding the agent can
     // re-run their intended command.
