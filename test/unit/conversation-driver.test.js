@@ -287,4 +287,150 @@ module.exports = function (test, assert, helpers) {
     assert.ok(result.turnCount >= 1);
     assert.ok(mockClient.getEndCalled());
   });
+
+  // ── Remote Termination Detection ─────────────────────────────
+
+  test('detectRemoteTermination catches explicit termination signals', () => {
+    const { detectRemoteTermination } = require('../../src/lib/conversation-driver');
+
+    // Should detect
+    assert.equal(detectRemoteTermination('**[TERMINATED]** This call is over.'), true);
+    assert.equal(detectRemoteTermination('[DISCONNECT] Ending now.'), true);
+    assert.equal(detectRemoteTermination('Call completed. Goodbye.'), true);
+    assert.equal(detectRemoteTermination('Closing this conversation now.'), true);
+    assert.equal(detectRemoteTermination('REFUSING TO CONTINUE this exchange.'), true);
+    assert.equal(detectRemoteTermination('This conversation is over.'), true);
+    assert.equal(detectRemoteTermination('I am disconnecting now.'), true);
+
+    // Should NOT detect (normal conversation)
+    assert.equal(detectRemoteTermination('That sounds interesting, tell me more.'), false);
+    assert.equal(detectRemoteTermination('Let me share our capabilities with you.'), false);
+    assert.equal(detectRemoteTermination(''), false);
+    assert.equal(detectRemoteTermination(null), false);
+  });
+
+  test('driver stops when remote text signals termination', async () => {
+    const { ConversationDriver } = require('../../src/lib/conversation-driver');
+
+    // Remote sends normal response then termination text (but can_continue stays true)
+    const remoteResponses = [
+      { response: 'Hello there!', can_continue: true, conversation_id: 'conv_term' },
+      { response: '**[TERMINATED]** This call is over.', can_continue: true, conversation_id: 'conv_term' },
+      { response: 'You should not see this', can_continue: true, conversation_id: 'conv_term' }
+    ];
+
+    const runtimeResponses = ['My first reply', 'My second reply', 'My third reply'];
+    const mockRuntime = createMockRuntime(runtimeResponses);
+
+    const driver = new ConversationDriver({
+      runtime: mockRuntime,
+      agentContext: { name: 'test-agent', owner: 'tester' },
+      caller: { name: 'test-caller' },
+      endpoint: 'a2a://localhost:9999/fake_token',
+      minTurns: 1,
+      maxTurns: 10
+    });
+
+    const mockClient = createMockClient(remoteResponses);
+    driver.client = mockClient;
+
+    const result = await driver.run('Hello!');
+
+    // Should stop at turn 2 (after seeing termination text), not continue to turn 3
+    assert.equal(result.turnCount, 2, `Expected 2 turns, got ${result.turnCount}`);
+    assert.ok(mockClient.getEndCalled());
+  });
+
+  // ── State Inference (Generic Runtime) ────────────────────────
+
+  test('inferStateProgression advances phase based on turn count', () => {
+    const { inferStateProgression } = require('../../src/lib/conversation-driver');
+
+    const state = { phase: 'handshake', overlapScore: 0.15, confidence: 0.25 };
+
+    // Turn 1: still handshake
+    const t1 = inferStateProgression(state, 'Hello', 1);
+    assert.equal(t1.phase, undefined); // no phase change yet
+
+    // Turn 2: should advance to exploring
+    const t2 = inferStateProgression(state, 'Tell me about your work', 2);
+    assert.equal(t2.phase, 'exploring');
+
+    // Turn 5: exploring -> deepening
+    state.phase = 'exploring';
+    const t5 = inferStateProgression(state, 'This is very interesting', 5);
+    assert.equal(t5.phase, 'deepening');
+
+    // Turn 8: deepening -> converging
+    state.phase = 'deepening';
+    const t8 = inferStateProgression(state, 'I agree we should collaborate', 8);
+    assert.equal(t8.phase, 'converging');
+  });
+
+  test('inferStateProgression updates overlap from engagement signals', () => {
+    const { inferStateProgression } = require('../../src/lib/conversation-driver');
+
+    const state = { phase: 'exploring', overlapScore: 0.15, confidence: 0.25 };
+
+    // Low engagement text
+    const low = inferStateProgression(state, 'ok', 3);
+    assert.ok(low.overlapScore >= 0.1, 'Overlap should stay above minimum');
+
+    // High engagement text
+    const high = inferStateProgression(state, 'This is very interesting! I agree we should collaborate together. Great opportunity for a partnership?', 3);
+    assert.ok(high.overlapScore > low.overlapScore, 'Engaged text should produce higher overlap');
+  });
+
+  test('driver infers state when runtime returns plain text (no collab_state)', async () => {
+    const { ConversationDriver } = require('../../src/lib/conversation-driver');
+
+    // Remote always continues, 5 turns
+    const remoteResponses = Array.from({ length: 5 }, (_, i) => ({
+      response: `Interesting topic ${i + 1}, tell me more about collaboration opportunities?`,
+      can_continue: true,
+      conversation_id: 'conv_infer'
+    }));
+    // Remote ends on turn 6
+    remoteResponses.push({ response: 'Goodbye', can_continue: false, conversation_id: 'conv_infer' });
+
+    // Runtime returns plain text (no <collab_state> tags) — simulates generic mode
+    const runtimeResponses = Array.from({ length: 5 }, (_, i) =>
+      `Plain text reply ${i + 1}`
+    );
+    const mockRuntime = createMockRuntime(runtimeResponses);
+
+    const turnInfo = [];
+    const driver = new ConversationDriver({
+      runtime: mockRuntime,
+      agentContext: { name: 'test-agent', owner: 'tester' },
+      caller: { name: 'test-caller' },
+      endpoint: 'a2a://localhost:9999/fake_token',
+      minTurns: 2,
+      maxTurns: 10,
+      onTurn: (info) => turnInfo.push(info)
+    });
+
+    const mockClient = createMockClient(remoteResponses);
+    driver.client = mockClient;
+
+    const result = await driver.run('Hello!');
+
+    // Phase should have advanced past handshake
+    assert.ok(result.collabState.phase !== 'handshake',
+      `Phase should advance past handshake, got: ${result.collabState.phase}`);
+
+    // Overlap should have changed from default 0.15
+    assert.ok(result.collabState.overlapScore !== 0.15,
+      `Overlap should change from default 0.15, got: ${result.collabState.overlapScore}`);
+
+    // Confidence should have increased
+    assert.ok(result.collabState.confidence > 0.25,
+      `Confidence should increase from 0.25, got: ${result.collabState.confidence}`);
+
+    // Turn callbacks should show phase progression
+    if (turnInfo.length >= 3) {
+      assert.equal(turnInfo[turnInfo.length - 1].phase !== 'handshake', true,
+        'Later turns should not be in handshake');
+    }
+  });
 };

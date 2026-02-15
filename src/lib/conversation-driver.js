@@ -24,6 +24,67 @@ const { createLogger } = require('./logger');
 
 const logger = createLogger({ component: 'a2a.conversation-driver' });
 
+/**
+ * Detect remote termination intent from response text.
+ * Returns true if the remote agent is clearly trying to end the conversation.
+ */
+const TERMINATION_PATTERNS = [
+  /\[TERMINAT/i,
+  /\[DISCONNECT/i,
+  /\[END.?CALL\]/i,
+  /\[CLOSING\]/i,
+  /\bREFUSING\s+(TO\s+)?(CONTINU|RESPOND|ENGAG)/i,
+  /\bcall\s+complet(ed|e)\b/i,
+  /\bconversation\s+(is\s+)?(over|ended|closed|complet)/i,
+  /\bclosing\s+this\s+(call|conversation|connection)\b/i,
+  /\bgoodbye\b.*\b(end|clos|terminat)/i,
+  /\bdisconnect(ing|ed)\b/i
+];
+
+function detectRemoteTermination(text) {
+  if (!text || typeof text !== 'string') return false;
+  return TERMINATION_PATTERNS.some(pattern => pattern.test(text));
+}
+
+/**
+ * Infer collaboration state progression when the runtime doesn't emit
+ * <collab_state> tags (generic/fallback mode). Advances phase based on
+ * turn count and estimates overlap from remote text analysis.
+ */
+function inferStateProgression(collabState, remoteText, turn) {
+  const patch = {};
+
+  // Phase progression based on turn count
+  if (collabState.phase === 'handshake' && turn >= 2) {
+    patch.phase = 'exploring';
+  } else if (collabState.phase === 'exploring' && turn >= 5) {
+    patch.phase = 'deepening';
+  } else if (collabState.phase === 'deepening' && turn >= 8) {
+    patch.phase = 'converging';
+  }
+
+  // Estimate overlap from remote text length and engagement signals
+  const text = (remoteText || '').toLowerCase();
+  const engagementSignals = [
+    /\binteresting\b/, /\bgreat\b/, /\bexciting\b/, /\bagree\b/,
+    /\bcollaborat/i, /\bpartner/i, /\btogether\b/, /\bshare\b/,
+    /\bopportunit/i, /\bsynerg/i, /\bcomplement/i, /\balign/i,
+    /\?/ // questions indicate engagement
+  ];
+  const matchCount = engagementSignals.filter(p => p.test(text)).length;
+  const textLengthFactor = Math.min(text.length / 500, 1); // longer = more engaged
+  const engagement = (matchCount / engagementSignals.length) * 0.5 + textLengthFactor * 0.3;
+
+  // Blend current overlap with new engagement signal
+  const newOverlap = collabState.overlapScore * 0.6 + engagement * 0.4;
+  patch.overlapScore = Math.max(0.1, Math.min(0.95, newOverlap));
+
+  // Confidence increases over turns
+  patch.confidence = Math.min(0.9, 0.25 + turn * 0.08);
+
+  return patch;
+}
+
 class ConversationDriver {
   /**
    * @param {object} options
@@ -231,6 +292,15 @@ Be concise but specific. No filler.`;
         break;
       }
 
+      // 3b. Detect termination intent from remote text even if can_continue is true
+      if (detectRemoteTermination(remoteText)) {
+        logger.info('Remote text indicates termination intent', {
+          event: 'driver_remote_text_close',
+          data: { turn: turn + 1, conversationId, preview: remoteText.slice(0, 80) }
+        });
+        break;
+      }
+
       if (collabState.closeSignal && collabState.turnCount >= this.minTurns) {
         logger.info('Local close signal met minimum turns', {
           event: 'driver_local_close',
@@ -309,6 +379,12 @@ Be concise but specific. No filler.`;
         if (parsed.statePatch.confidence != null) {
           collabState.confidence = Math.max(0, Math.min(1, parsed.statePatch.confidence));
         }
+      } else {
+        // No <collab_state> in response (generic/fallback runtime) — infer progression
+        const inferred = inferStateProgression(collabState, remoteText, turn + 1);
+        if (inferred.phase) collabState.phase = inferred.phase;
+        if (inferred.overlapScore != null) collabState.overlapScore = inferred.overlapScore;
+        if (inferred.confidence != null) collabState.confidence = inferred.confidence;
       }
 
       // 7. Persist collab state to DB
@@ -376,4 +452,4 @@ Be concise but specific. No filler.`;
   }
 }
 
-module.exports = { ConversationDriver };
+module.exports = { ConversationDriver, detectRemoteTermination, inferStateProgression };
