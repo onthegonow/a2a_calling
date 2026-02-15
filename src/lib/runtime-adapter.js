@@ -3,20 +3,17 @@
  *
  * Modes:
  * - openclaw: uses `openclaw` CLI for turn handling, summaries, notifications
- * - generic: platform-agnostic fallback that never hard-fails calls
+ * - claude: uses `claude` CLI as a real LLM subagent for conversations
  *
  * Selection:
- * - A2A_RUNTIME=openclaw|generic|auto (default: auto)
- * - auto picks openclaw if CLI exists, otherwise generic
- *
- * Generic bridge hooks:
- * - A2A_AGENT_COMMAND   command that receives JSON payload on stdin and returns text or JSON
- * - A2A_SUMMARY_COMMAND command that receives JSON payload on stdin and returns summary text/JSON
- * - A2A_NOTIFY_COMMAND  command that receives JSON payload on stdin for owner notifications
+ * - A2A_RUNTIME=openclaw|claude|auto (default: auto)
+ * - auto picks openclaw → claude → error (no supported CLI)
  */
 
 const { execSync, spawnSync } = require('child_process');
 const { createLogger } = require('./logger');
+const { runClaudeTurn: invokeClaudeTurn, buildSubagentSystemPrompt, runClaudeSummary } = require('./claude-subagent');
+const { getTopicsForTier, formatTopicsForPrompt, loadManifest } = require('./disclosure');
 
 function commandExists(command) {
   try {
@@ -34,15 +31,6 @@ function cleanText(value, maxLength = 300) {
     .slice(0, maxLength);
 }
 
-function normalizeCommandText(command) {
-  return String(command || '').trim().slice(0, 160);
-}
-
-function payloadAuditLength(payload) {
-  const raw = JSON.stringify(payload || {});
-  return Number.isFinite(raw?.length) ? raw.length : 0;
-}
-
 function toBool(value, fallback = true) {
   if (value === undefined || value === null || value === '') {
     return fallback;
@@ -54,13 +42,36 @@ function toBool(value, fallback = true) {
 function resolveRuntimeMode() {
   const requested = String(process.env.A2A_RUNTIME || 'auto').trim().toLowerCase();
   const hasOpenClaw = commandExists('openclaw');
+  const hasClaude = commandExists('claude');
 
   if (requested === 'generic') {
     return {
-      mode: 'generic',
+      mode: 'none',
       requested,
       hasOpenClaw,
-      reason: 'A2A_RUNTIME=generic'
+      hasClaude,
+      warning: 'A2A_RUNTIME=generic is no longer supported. Use openclaw or claude runtime.',
+      reason: 'unsupported-generic-mode'
+    };
+  }
+
+  if (requested === 'claude') {
+    if (hasClaude) {
+      return {
+        mode: 'claude',
+        requested,
+        hasOpenClaw,
+        hasClaude,
+        reason: 'A2A_RUNTIME=claude'
+      };
+    }
+    return {
+      mode: 'none',
+      requested,
+      hasOpenClaw,
+      hasClaude,
+      warning: 'A2A_RUNTIME=claude but claude CLI not found; install claude CLI or switch to openclaw',
+      reason: 'forced-claude-missing'
     };
   }
 
@@ -70,32 +81,48 @@ function resolveRuntimeMode() {
         mode: 'openclaw',
         requested,
         hasOpenClaw,
+        hasClaude,
         reason: 'A2A_RUNTIME=openclaw'
       };
     }
     return {
-      mode: 'generic',
+      mode: 'none',
       requested,
       hasOpenClaw,
-      warning: 'A2A_RUNTIME=openclaw but openclaw CLI not found, falling back to generic runtime',
+      hasClaude,
+      warning: 'A2A_RUNTIME=openclaw but openclaw CLI not found; install openclaw CLI or switch to openclaw',
       reason: 'forced-openclaw-missing'
     };
   }
 
+  // Auto detection chain: openclaw → claude → none
   if (hasOpenClaw) {
     return {
       mode: 'openclaw',
       requested: 'auto',
       hasOpenClaw,
+      hasClaude,
       reason: 'openclaw CLI detected'
     };
   }
 
+  if (hasClaude) {
+    return {
+      mode: 'claude',
+      requested: 'auto',
+      hasOpenClaw,
+      hasClaude,
+      reason: 'claude CLI detected'
+    };
+  }
+
   return {
-    mode: 'generic',
+    mode: 'none',
     requested: 'auto',
     hasOpenClaw,
-    reason: 'openclaw CLI not detected'
+    hasClaude,
+    warning: 'No supported runtime CLI found. Install openclaw or claude CLI.',
+    reason: 'no supported CLI detected'
   };
 }
 
@@ -111,74 +138,6 @@ function normalizeOpenClawOutput(raw) {
   return lines.join('\n').trim();
 }
 
-function parseCommandTextOutput(rawOutput, keys = ['response', 'text', 'message']) {
-  const output = String(rawOutput || '').trim();
-  if (!output) {
-    return '';
-  }
-
-  try {
-    const parsed = JSON.parse(output);
-    if (parsed && typeof parsed === 'object') {
-      for (const key of keys) {
-        if (typeof parsed[key] === 'string' && parsed[key].trim()) {
-          return parsed[key].trim();
-        }
-      }
-    }
-  } catch (err) {
-    // Plain text output is valid for bridge commands.
-  }
-
-  return output;
-}
-
-function parseSummaryOutput(rawOutput) {
-  const output = String(rawOutput || '').trim();
-  if (!output) {
-    return null;
-  }
-
-  try {
-    const parsed = JSON.parse(output);
-    if (parsed && typeof parsed === 'object') {
-      const summary = cleanText(parsed.summary || parsed.text || parsed.message, 1500);
-      return {
-        ...parsed,
-        summary: summary || null,
-        ownerSummary: cleanText(
-          parsed.ownerSummary || parsed.owner_summary || summary || '',
-          1500
-        ) || null
-      };
-    }
-  } catch (err) {
-    // Plain text is also acceptable.
-  }
-
-  const summary = cleanText(output, 1500);
-  return {
-    summary,
-    ownerSummary: summary
-  };
-}
-
-function runCommand(command, payload, options = {}) {
-  const payloadJson = JSON.stringify(payload || {});
-  const timeoutMs = options.timeoutMs || 60000;
-  return execSync(command, {
-    encoding: 'utf8',
-    timeout: timeoutMs,
-    stdio: ['pipe', 'pipe', 'pipe'],
-    input: payloadJson,
-    cwd: options.cwd || process.cwd(),
-    env: {
-      ...process.env,
-      A2A_PAYLOAD_JSON: payloadJson
-    }
-  });
-}
-
 function escapeCliValue(value) {
   return String(value || '')
     .replace(/\\/g, '\\\\')     // Backslashes first
@@ -190,72 +149,11 @@ function escapeCliValue(value) {
     .replace(/\r/g, '');        // Carriage returns
 }
 
-function buildFallbackResponse(message, context = {}, reason = null) {
-  const callerName = cleanText(context.callerName || context.caller?.name || 'caller');
-  const ownerName = cleanText(context.ownerName || 'the owner');
-  const allowedTopics = Array.isArray(context.allowedTopics)
-    ? context.allowedTopics.filter(Boolean).slice(0, 4)
-    : [];
-  const topicText = allowedTopics.length > 0
-    ? allowedTopics.join(', ')
-    : 'permitted topics';
-  const excerpt = cleanText(message, 220) || 'No message content provided.';
-
-  let prefix = `I am running in generic A2A mode for ${ownerName}.`;
-  if (reason) {
-    prefix = `I switched to generic fallback mode (${cleanText(reason, 120)}).`;
-  }
-
-  return `${prefix} I received from ${callerName}: "${excerpt}". ` +
-    `We can still work through concrete overlap on ${topicText} and line up actionable next steps. ` +
-    `What outcome should we target first?`;
-}
-
-function buildFallbackSummary(messages = [], callerInfo = {}, reason = null) {
-  const inbound = messages.filter(m => m.direction === 'inbound');
-  const outbound = messages.filter(m => m.direction !== 'inbound');
-  const caller = cleanText(callerInfo?.name || 'Unknown caller');
-  const lastInbound = inbound.length > 0
-    ? cleanText(inbound[inbound.length - 1].content, 220)
-    : '';
-
-  const summary = [
-    `Call concluded with ${caller}.`,
-    `Inbound turns: ${inbound.length}. Outbound turns: ${outbound.length}.`,
-    lastInbound ? `Latest caller request: "${lastInbound}".` : '',
-    reason ? `Summary mode: ${cleanText(reason, 140)}.` : 'Summary mode: generic fallback.'
-  ].filter(Boolean).join(' ');
-
-  return {
-    summary,
-    ownerSummary: summary,
-    relevance: 'unknown',
-    goalsTouched: [],
-    ownerActionItems: [],
-    callerActionItems: [],
-    jointActionItems: [],
-    collaborationOpportunity: {
-      found: false,
-      rationale: 'Generic fallback summary (no platform-specific summarizer configured)'
-    },
-    followUp: lastInbound
-      ? `Clarify the next concrete step for: ${lastInbound}`
-      : 'Ask both owners to confirm desired follow-up scope.',
-    notes: reason
-      ? `Fallback summary generated after runtime issue: ${cleanText(reason, 180)}`
-      : 'Fallback summary generated by generic runtime.'
-  };
-}
-
 function createRuntimeAdapter(options = {}) {
   const workspaceDir = options.workspaceDir || process.cwd();
   const modeInfo = resolveRuntimeMode();
   const failoverEnabled = toBool(process.env.A2A_RUNTIME_FAILOVER, true);
   const logger = options.logger || createLogger({ component: 'a2a.runtime' });
-
-  const genericAgentCommand = process.env.A2A_AGENT_COMMAND || '';
-  const genericSummaryCommand = process.env.A2A_SUMMARY_COMMAND || '';
-  const genericNotifyCommand = process.env.A2A_NOTIFY_COMMAND || '';
 
   logger.info('Runtime adapter initialized', {
     event: 'runtime_initialized',
@@ -264,9 +162,107 @@ function createRuntimeAdapter(options = {}) {
       requested_mode: modeInfo.requested,
       reason: modeInfo.reason,
       has_openclaw: modeInfo.hasOpenClaw,
+      has_claude: modeInfo.hasClaude,
       failover_enabled: failoverEnabled
     }
   });
+
+  // Claude subagent session tracking
+  const claudeSessions = new Map();
+
+  async function runClaudeTurnAdapter({ sessionId, message, caller, context, timeoutMs }) {
+    const traceId = context?.traceId || context?.trace_id;
+    const requestId = context?.requestId || context?.request_id;
+    const conversationId = context?.conversationId || context?.conversation_id;
+    const startAt = Date.now();
+
+    // Get or create session state
+    let session = claudeSessions.get(sessionId);
+    if (!session) {
+      // First turn: build the system prompt from disclosure context
+      const manifest = loadManifest();
+      const tierTopics = getTopicsForTier(context?.tier || 'public');
+      const formatted = formatTopicsForPrompt(tierTopics);
+
+      const systemPrompt = buildSubagentSystemPrompt({
+        agentName: context?.agentName || 'Agent',
+        ownerName: context?.ownerName || 'the owner',
+        otherAgentName: caller?.name || 'Remote Agent',
+        otherOwnerName: caller?.owner || 'their owner',
+        accessTier: context?.tier || 'public',
+        tierTopics: formatted.topics,
+        tierObjectives: formatted.objectives,
+        doNotDiscuss: formatted.doNotDiscuss,
+        neverDisclose: formatted.neverDisclose,
+        personalityNotes: manifest.personality_notes || '',
+        roleContext: context?.roleContext || ''
+      });
+
+      session = { claudeSessionId: null, systemPrompt, turnCount: 0, lastMeta: null };
+      claudeSessions.set(sessionId, session);
+    }
+
+    session.turnCount++;
+
+    logger.debug('Invoking Claude subagent turn', {
+      event: 'claude_turn_start',
+      traceId,
+      requestId,
+      conversationId,
+      data: {
+        session_id: sessionId,
+        turn: session.turnCount,
+        timeout_ms: timeoutMs
+      }
+    });
+
+    const result = await invokeClaudeTurn({
+      sessionId: session.claudeSessionId,
+      systemPrompt: session.systemPrompt,
+      turnMessage: message,
+      turn: session.turnCount,
+      maxTurns: context?.maxTurns || 30,
+      phase: context?.phase || 'handshake',
+      overlapScore: context?.overlapScore || 0.15,
+      activeThreads: context?.activeThreads || [],
+      candidateCollaborations: context?.candidateCollaborations || [],
+      closeSignal: context?.closeSignal || false,
+      timeoutMs: timeoutMs || 180000
+    });
+
+    // Store session ID from first turn for subsequent --resume
+    if (result.sessionId) {
+      session.claudeSessionId = result.sessionId;
+    }
+
+    // Store flags/state for retrieval via getLastTurnMeta
+    session.lastMeta = {
+      statePatch: result.statePatch,
+      flags: result.flags
+    };
+
+    logger.debug('Claude subagent turn completed', {
+      event: 'claude_turn_complete',
+      traceId,
+      requestId,
+      conversationId,
+      data: {
+        session_id: sessionId,
+        turn: session.turnCount,
+        duration_ms: Date.now() - startAt,
+        message_length: result.message.length,
+        has_state_patch: Boolean(result.statePatch),
+        flag_count: result.flags.length
+      }
+    });
+
+    return result.message;
+  }
+
+  function getLastTurnMeta(sessionId) {
+    const session = claudeSessions.get(sessionId);
+    return session?.lastMeta || null;
+  }
 
   async function runOpenClawTurn({ sessionId, prompt, timeoutMs }) {
     const timeoutSeconds = Math.max(5, Math.min(300, Math.round((timeoutMs || 65000) / 1000)));
@@ -328,185 +324,34 @@ function createRuntimeAdapter(options = {}) {
     ], { timeout: 10000, stdio: 'pipe' });
   }
 
-  async function runGenericTurn({ message, caller, context, runtimeError }) {
-    const payload = {
-      mode: 'a2a-turn',
-      message,
-      caller: caller || {},
-      context: context || {}
-    };
-    const traceId = context?.traceId || context?.trace_id;
-    const requestId = context?.requestId || context?.request_id;
-    const conversationId = context?.conversationId || context?.conversation_id;
-    const startAt = Date.now();
-
-    logger.debug('Invoking generic agent command', {
-      event: 'generic_agent_command_start',
-      traceId,
-      requestId,
-      conversationId,
-      data: {
-        command: normalizeCommandText(genericAgentCommand),
-        payload_bytes: payloadAuditLength(payload)
-      }
-    });
-
-    if (genericAgentCommand) {
-      try {
-        const output = runCommand(genericAgentCommand, payload, {
-          timeoutMs: context?.timeoutMs || 65000
-        });
-        const text = parseCommandTextOutput(output);
-        logger.debug('Generic agent command completed', {
-          event: 'generic_agent_command_complete',
-          traceId,
-          requestId,
-          conversationId,
-          data: {
-            command: normalizeCommandText(genericAgentCommand),
-            duration_ms: Date.now() - startAt,
-            output_length: String(output || '').length
-          }
-        });
-        if (text) {
-          return text;
-        }
-      } catch (err) {
-        runtimeError = err.message;
-        logger.error('Generic agent command failed', {
-          event: 'generic_agent_command_failed',
-          traceId,
-          requestId,
-          conversationId,
-          error_code: 'GENERIC_AGENT_COMMAND_FAILED',
-          hint: 'Verify A2A_AGENT_COMMAND exits 0 and returns valid text/JSON response.',
-          error: err,
-          data: {
-            command_present: Boolean(genericAgentCommand),
-            command: normalizeCommandText(genericAgentCommand),
-            payload_bytes: payloadAuditLength(payload),
-            duration_ms: Date.now() - startAt
-          }
-        });
-      }
-    }
-
-    return buildFallbackResponse(message, {
-      caller,
-      callerName: caller?.name,
-      ownerName: context?.ownerName,
-      allowedTopics: context?.allowedTopics
-    }, runtimeError);
-  }
-
-  async function runGenericSummary({ messages, callerInfo, reason }) {
-    const payload = {
-      mode: 'a2a-summary',
-      messages,
-      caller: callerInfo || {}
-    };
-    const traceId = callerInfo?.trace_id || callerInfo?.traceId;
-    const requestId = callerInfo?.request_id || callerInfo?.requestId;
-    const conversationId = callerInfo?.conversation_id || callerInfo?.conversationId;
-    const startAt = Date.now();
-
-    if (genericSummaryCommand) {
-      try {
-        const output = runCommand(genericSummaryCommand, payload, { timeoutMs: 35000 });
-        const parsed = parseSummaryOutput(output);
-        logger.debug('Generic summary command completed', {
-          event: 'generic_summary_command_complete',
-          traceId,
-          requestId,
-          conversationId,
-          data: {
-            command: normalizeCommandText(genericSummaryCommand),
-            payload_bytes: payloadAuditLength(payload),
-            output_length: String(output || '').length
-          }
-        });
-        if (parsed && parsed.summary) {
-          return parsed;
-        }
-      } catch (err) {
-        reason = err.message;
-        logger.error('Generic summary command failed', {
-          event: 'generic_summary_command_failed',
-          traceId,
-          requestId,
-          conversationId,
-          error_code: 'GENERIC_SUMMARY_COMMAND_FAILED',
-          hint: 'Verify A2A_SUMMARY_COMMAND returns JSON with summary field or plain text.',
-          error: err,
-          data: {
-            command_present: Boolean(genericSummaryCommand),
-            command: normalizeCommandText(genericSummaryCommand),
-            payload_bytes: payloadAuditLength(payload),
-            duration_ms: Date.now() - startAt
-          }
-        });
-      }
-    }
-
-    return buildFallbackSummary(messages, callerInfo, reason);
-  }
-
-  async function runGenericNotify(payload) {
-    if (!genericNotifyCommand) {
-      return;
-    }
-    const traceId = payload?.trace_id || payload?.traceId;
-    const requestId = payload?.request_id || payload?.requestId;
-    const conversationId = payload?.conversationId;
-    const startAt = Date.now();
-    logger.debug('Invoking generic notify command', {
-      event: 'generic_notify_command_start',
-      traceId,
-      requestId,
-      conversationId,
-      data: {
-        command: normalizeCommandText(genericNotifyCommand),
-        payload_bytes: payloadAuditLength(payload)
-      }
-    });
-    try {
-      runCommand(genericNotifyCommand, payload, { timeoutMs: 10000 });
-      logger.debug('Generic notify command completed', {
-        event: 'generic_notify_command_complete',
-        traceId,
-        requestId,
-        conversationId,
-        data: {
-          command: normalizeCommandText(genericNotifyCommand),
-          duration_ms: Date.now() - startAt
-        }
-      });
-    } catch (err) {
-      logger.error('Generic notify command failed', {
-        event: 'generic_notify_command_failed',
-        traceId,
-        requestId,
-        conversationId,
-        tokenId: payload?.token?.id,
-        error_code: 'GENERIC_NOTIFY_COMMAND_FAILED',
-        hint: 'Validate A2A_NOTIFY_COMMAND and downstream notifier transport availability.',
-        error: err,
-        data: {
-          command_present: Boolean(genericNotifyCommand),
-          command: normalizeCommandText(genericNotifyCommand),
-          payload_bytes: payloadAuditLength(payload),
-          duration_ms: Date.now() - startAt
-        }
-      });
-    }
-  }
-
   async function runTurn({ sessionId, prompt, message, caller, context = {}, timeoutMs }) {
     const traceId = context?.traceId || context?.trace_id;
     const requestId = context?.requestId || context?.request_id;
     const conversationId = context?.conversationId || context?.conversation_id;
+
+    if (modeInfo.mode === 'claude') {
+      try {
+        return await runClaudeTurnAdapter({ sessionId, message, caller, context, timeoutMs });
+      } catch (err) {
+        logger.error('Claude subagent turn failed', {
+          event: 'claude_turn_failed',
+          traceId,
+          requestId,
+          conversationId,
+          error_code: 'CLAUDE_TURN_FAILED',
+          hint: 'Inspect Claude CLI availability, timeout settings, and CLAUDECODE env var.',
+          error: err,
+          data: { session_id: sessionId, timeout_ms: timeoutMs }
+        });
+        throw err;
+      }
+    }
+
     if (modeInfo.mode !== 'openclaw') {
-      return runGenericTurn({ message, caller, context });
+      throw new Error(
+        `No supported A2A runtime available (mode=${modeInfo.mode}). ` +
+        'Install the openclaw or claude CLI and set A2A_RUNTIME accordingly.'
+      );
     }
 
     const startAt = Date.now();
@@ -535,42 +380,21 @@ function createRuntimeAdapter(options = {}) {
       });
       return response;
     } catch (err) {
-      if (!failoverEnabled) {
-        logger.error('OpenClaw turn failed', {
-          event: 'openclaw_turn_failed',
-          traceId,
-          requestId,
-          conversationId,
-          error_code: 'OPENCLAW_TURN_FAILED',
-          hint: 'Inspect OpenClaw CLI output, timeout settings, and environment PATH.',
-          error: err,
-          data: {
-            session_id: sessionId,
-            timeout_ms: timeoutMs,
-            duration_ms: Date.now() - startAt
-          }
-        });
-        throw err;
-      }
-      logger.warn('OpenClaw runtime failed, switching to generic fallback', {
-        event: 'openclaw_turn_failed_fallback',
+      logger.error('OpenClaw turn failed', {
+        event: 'openclaw_turn_failed',
         traceId,
         requestId,
         conversationId,
-        error_code: 'OPENCLAW_TURN_FAILED_FALLBACK',
-        hint: 'Inspect OpenClaw CLI health or set A2A_RUNTIME=generic for explicit fallback mode.',
+        error_code: 'OPENCLAW_TURN_FAILED',
+        hint: 'Inspect OpenClaw CLI output, timeout settings, and environment PATH.',
         error: err,
         data: {
-          duration_ms: Date.now() - startAt,
-          failover_enabled: failoverEnabled
+          session_id: sessionId,
+          timeout_ms: timeoutMs,
+          duration_ms: Date.now() - startAt
         }
       });
-      return runGenericTurn({
-        message,
-        caller,
-        context,
-        runtimeError: `openclaw runtime unavailable: ${err.message}`
-      });
+      throw err;
     }
   }
 
@@ -578,9 +402,26 @@ function createRuntimeAdapter(options = {}) {
     const effectiveTraceId = traceId || callerInfo?.trace_id || callerInfo?.traceId;
     const requestId = callerInfo?.request_id || callerInfo?.requestId;
     const effectiveConversationId = conversationId || callerInfo?.conversation_id || callerInfo?.conversationId;
-    if (modeInfo.mode !== 'openclaw') {
-      return runGenericSummary({ messages, callerInfo });
+
+    // Claude mode: use the subagent session for summarization
+    if (modeInfo.mode === 'claude') {
+      const session = claudeSessions.get(sessionId);
+      if (session?.claudeSessionId) {
+        const result = await runClaudeSummary(session.claudeSessionId, 'conversation ended');
+        if (result && result.summary) {
+          return result;
+        }
+      }
+      throw new Error('Claude summary session not available or returned empty result');
     }
+
+    if (modeInfo.mode !== 'openclaw') {
+      throw new Error(
+        `No supported A2A runtime available for summarization (mode=${modeInfo.mode}). ` +
+        'Install the openclaw or claude CLI and set A2A_RUNTIME accordingly.'
+      );
+    }
+
     const startAt = Date.now();
     logger.debug('Invoking openclaw summary', {
       event: 'openclaw_summary_start',
@@ -612,72 +453,27 @@ function createRuntimeAdapter(options = {}) {
         });
         return result;
       }
-      logger.warn('OpenClaw summary returned empty output; using generic fallback', {
-        event: 'openclaw_summary_empty',
+      throw new Error('OpenClaw summary returned empty output');
+    } catch (err) {
+      logger.error('OpenClaw summary failed', {
+        event: 'openclaw_summary_failed',
         traceId: effectiveTraceId,
         requestId,
         conversationId: effectiveConversationId,
+        error_code: 'OPENCLAW_SUMMARY_FAILED',
+        hint: 'Inspect summary message length, timeout configuration, and CLI stderr output.',
+        error: err,
         data: {
           session_id: sessionId,
           duration_ms: Date.now() - startAt
         }
       });
-      return runGenericSummary({
-        messages,
-        callerInfo,
-        reason: 'empty summary from openclaw runtime'
-      });
-    } catch (err) {
-      if (!failoverEnabled) {
-        logger.error('OpenClaw summary failed', {
-          event: 'openclaw_summary_failed',
-          traceId: effectiveTraceId,
-          requestId,
-          conversationId: effectiveConversationId,
-          error_code: 'OPENCLAW_SUMMARY_FAILED',
-          hint: 'Inspect summary message length, timeout configuration, and CLI stderr output.',
-          error: err,
-          data: {
-            session_id: sessionId,
-            duration_ms: Date.now() - startAt
-          }
-        });
-        throw err;
-      }
-      logger.warn('OpenClaw summary failed, using generic fallback', {
-        event: 'openclaw_summary_failed_fallback',
-        traceId: effectiveTraceId,
-        requestId,
-        conversationId: effectiveConversationId,
-        error_code: 'OPENCLAW_SUMMARY_FAILED_FALLBACK',
-        hint: 'Inspect OpenClaw summary session output and summarizer prompt input.',
-        error: err,
-        data: {
-          session_id: sessionId,
-          duration_ms: Date.now() - startAt,
-          failover_enabled: failoverEnabled
-        }
-      });
-      return runGenericSummary({
-        messages,
-        callerInfo,
-        reason: `openclaw summary unavailable: ${err.message}`
-      });
+      throw err;
     }
   }
 
   async function notify({ level, token, caller, message, conversationId, traceId }) {
     const requestId = token?.request_id || token?.requestId || null;
-    const payload = {
-      mode: 'a2a-notify',
-      level,
-      token: token || null,
-      caller: caller || null,
-      message,
-      conversationId,
-      traceId,
-      requestId
-    };
 
     logger.debug('Owner notify requested', {
       event: 'notify_requested',
@@ -688,8 +484,27 @@ function createRuntimeAdapter(options = {}) {
       data: { level }
     });
 
+    if (modeInfo.mode === 'claude') {
+      // Claude mode: notifications are a no-op (no notification transport available)
+      logger.debug('Notification skipped (claude mode has no notification transport)', {
+        event: 'notify_skipped_claude',
+        traceId,
+        requestId,
+        conversationId,
+        tokenId: token?.id
+      });
+      return;
+    }
+
     if (modeInfo.mode !== 'openclaw') {
-      return runGenericNotify(payload);
+      logger.debug('Notification skipped (no supported runtime)', {
+        event: 'notify_skipped_no_runtime',
+        traceId,
+        requestId,
+        conversationId,
+        tokenId: token?.id
+      });
+      return;
     }
 
     if (level !== 'all') {
@@ -713,31 +528,20 @@ function createRuntimeAdapter(options = {}) {
         }
       });
     } catch (err) {
-      if (!failoverEnabled) {
-        throw err;
-      }
-      logger.warn('OpenClaw notify failed, running generic notifier', {
-        event: 'openclaw_notify_failed_fallback',
+      // Notifications are best-effort; log and swallow
+      logger.warn('OpenClaw notify failed', {
+        event: 'openclaw_notify_failed',
         traceId,
         requestId,
         conversationId,
         tokenId: token?.id,
-        error_code: 'OPENCLAW_NOTIFY_FAILED_FALLBACK',
+        error_code: 'OPENCLAW_NOTIFY_FAILED',
         hint: 'Check OpenClaw messaging channel config and notify permissions.',
         error: err,
         data: {
-          failover_enabled: failoverEnabled,
           duration_ms: Date.now() - notifyStart
         }
       });
-      logger.debug('OpenClaw notify fallback to generic notifier', {
-        event: 'openclaw_notify_generic_fallback',
-        traceId,
-        requestId,
-        conversationId,
-        tokenId: token?.id
-      });
-      await runGenericNotify(payload);
     }
   }
 
@@ -745,18 +549,18 @@ function createRuntimeAdapter(options = {}) {
     mode: modeInfo.mode,
     requestedMode: modeInfo.requested,
     hasOpenClaw: modeInfo.hasOpenClaw,
+    hasClaude: modeInfo.hasClaude,
     reason: modeInfo.reason,
     warning: modeInfo.warning || null,
     failoverEnabled,
     runTurn,
     summarize,
     notify,
-    buildFallbackResponse
+    getLastTurnMeta
   };
 }
 
 module.exports = {
   createRuntimeAdapter,
-  resolveRuntimeMode,
-  buildFallbackResponse
+  resolveRuntimeMode
 };

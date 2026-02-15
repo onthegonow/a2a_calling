@@ -518,8 +518,7 @@ async function handleDisclosureSubmit(args, commandLabel = 'onboard') {
     return tierData.topics.map(t => String(t && t.topic || '').trim()).filter(Boolean);
   }
 
-  // Get tiers data (support both new 'tiers' key and legacy 'topics' key)
-  const tiersData = manifest.tiers || manifest.topics || {};
+  const tiersData = manifest.tiers || {};
 
   try {
     config.setTier('public', {

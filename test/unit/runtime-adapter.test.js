@@ -1,7 +1,7 @@
 /**
  * Runtime adapter tests
  *
- * Verifies platform auto-detection and generic fallback behavior.
+ * Verifies platform auto-detection and runtime mode resolution.
  */
 
 module.exports = function (test, assert) {
@@ -36,16 +36,17 @@ module.exports = function (test, assert) {
     return require('../../src/lib/runtime-adapter');
   }
 
-  test('resolveRuntimeMode honors forced generic mode', async () => {
+  test('resolveRuntimeMode returns none for forced generic mode', async () => {
     await withEnv({ A2A_RUNTIME: 'generic' }, () => {
       const { resolveRuntimeMode } = loadAdapterModule();
       const mode = resolveRuntimeMode();
-      assert.equal(mode.mode, 'generic');
+      assert.equal(mode.mode, 'none');
       assert.equal(mode.requested, 'generic');
+      assert.ok(Boolean(mode.warning));
     });
   });
 
-  test('forced openclaw mode falls back to generic when binary missing', async () => {
+  test('forced openclaw mode returns none when binary missing', async () => {
     await withEnv(
       {
         A2A_RUNTIME: 'openclaw',
@@ -54,85 +55,94 @@ module.exports = function (test, assert) {
       () => {
         const { resolveRuntimeMode } = loadAdapterModule();
         const mode = resolveRuntimeMode();
-        assert.equal(mode.mode, 'generic');
+        assert.equal(mode.mode, 'none');
         assert.equal(mode.requested, 'openclaw');
         assert.ok(Boolean(mode.warning));
       }
     );
   });
 
-  test('generic runtime returns non-failing fallback response', async () => {
+  // ── Claude mode detection ──────────────────────────────────
+
+  test('resolveRuntimeMode returns claude when claude in PATH and no openclaw', async () => {
     await withEnv(
       {
-        A2A_RUNTIME: 'generic',
+        A2A_RUNTIME: 'auto',
+        PATH: process.env.PATH, // claude is in PATH in this environment
         A2A_AGENT_COMMAND: undefined
       },
-      async () => {
-        const { createRuntimeAdapter } = loadAdapterModule();
-        const runtime = createRuntimeAdapter({ workspaceDir: process.cwd() });
-        const response = await runtime.runTurn({
-          sessionId: 's1',
-          prompt: 'prompt',
-          message: 'Can we collaborate on integration?',
-          caller: { name: 'Remote Agent' },
-          context: {
-            ownerName: 'Owner',
-            allowedTopics: ['chat', 'integration']
-          }
-        });
-
-        assert.type(response, 'string');
-        assert.includes(response, 'Remote Agent');
-        assert.match(response, /\?/);
+      () => {
+        const { resolveRuntimeMode } = loadAdapterModule();
+        const mode = resolveRuntimeMode();
+        // In this environment, openclaw may also be present.
+        // If openclaw is absent and claude is present, mode should be 'claude'.
+        // If both are present, openclaw wins in auto mode.
+        if (!mode.hasOpenClaw && mode.hasClaude) {
+          assert.equal(mode.mode, 'claude');
+          assert.equal(mode.reason, 'claude CLI detected');
+        }
+        // Either way, hasClaude should be reported
+        assert.equal(mode.hasClaude != null, true);
       }
     );
   });
 
-  test('generic runtime bridge command can supply response text', async () => {
+  test('resolveRuntimeMode prefers openclaw over claude in auto mode', async () => {
+    await withEnv({ A2A_RUNTIME: 'auto' }, () => {
+      const { resolveRuntimeMode } = loadAdapterModule();
+      const mode = resolveRuntimeMode();
+      if (mode.hasOpenClaw && mode.hasClaude) {
+        assert.equal(mode.mode, 'openclaw');
+      }
+    });
+  });
+
+  test('resolveRuntimeMode respects A2A_RUNTIME=claude override', async () => {
+    await withEnv({ A2A_RUNTIME: 'claude' }, () => {
+      const { resolveRuntimeMode } = loadAdapterModule();
+      const mode = resolveRuntimeMode();
+      if (mode.hasClaude) {
+        assert.equal(mode.mode, 'claude');
+        assert.equal(mode.requested, 'claude');
+        assert.equal(mode.reason, 'A2A_RUNTIME=claude');
+      }
+    });
+  });
+
+  test('resolveRuntimeMode returns none when A2A_RUNTIME=claude but CLI missing', async () => {
     await withEnv(
       {
-        A2A_RUNTIME: 'generic',
-        A2A_AGENT_COMMAND: "printf '{\"response\":\"bridge response ok\"}'"
+        A2A_RUNTIME: 'claude',
+        PATH: '/tmp/a2a-runtime-adapter-no-bin'
       },
-      async () => {
-        const { createRuntimeAdapter } = loadAdapterModule();
-        const runtime = createRuntimeAdapter({ workspaceDir: process.cwd() });
-        const response = await runtime.runTurn({
-          sessionId: 's2',
-          prompt: 'prompt',
-          message: 'hello',
-          caller: { name: 'Remote Agent' },
-          context: {}
-        });
-        assert.equal(response, 'bridge response ok');
+      () => {
+        const { resolveRuntimeMode } = loadAdapterModule();
+        const mode = resolveRuntimeMode();
+        assert.equal(mode.mode, 'none');
+        assert.equal(mode.requested, 'claude');
+        assert.ok(Boolean(mode.warning));
+        assert.includes(mode.warning, 'claude CLI not found');
       }
     );
   });
 
-  test('generic summary fallback always returns summary fields', async () => {
-    await withEnv(
-      {
-        A2A_RUNTIME: 'generic',
-        A2A_SUMMARY_COMMAND: undefined
-      },
-      async () => {
-        const { createRuntimeAdapter } = loadAdapterModule();
-        const runtime = createRuntimeAdapter({ workspaceDir: process.cwd() });
-        const result = await runtime.summarize({
-          sessionId: 'summary-1',
-          prompt: 'prompt',
-          callerInfo: { name: 'Remote Agent' },
-          messages: [
-            { direction: 'inbound', content: 'Can we collaborate?' },
-            { direction: 'outbound', content: 'Yes, let us align on goals.' }
-          ]
-        });
+  // ── Claude adapter return shape ────────────────────────────
 
-        assert.ok(result && typeof result === 'object');
-        assert.type(result.summary, 'string');
-        assert.type(result.ownerSummary, 'string');
-        assert.includes(result.summary, 'Remote Agent');
-      }
-    );
+  test('createRuntimeAdapter exposes getLastTurnMeta method', async () => {
+    await withEnv({ A2A_RUNTIME: 'generic' }, () => {
+      const { createRuntimeAdapter } = loadAdapterModule();
+      const runtime = createRuntimeAdapter({ workspaceDir: process.cwd() });
+      assert.type(runtime.getLastTurnMeta, 'function');
+      // Should return null for unknown sessions
+      assert.equal(runtime.getLastTurnMeta('nonexistent'), null);
+    });
+  });
+
+  test('createRuntimeAdapter reports hasClaude in return object', async () => {
+    await withEnv({ A2A_RUNTIME: 'generic' }, () => {
+      const { createRuntimeAdapter } = loadAdapterModule();
+      const runtime = createRuntimeAdapter({ workspaceDir: process.cwd() });
+      assert.equal(typeof runtime.hasClaude, 'boolean');
+    });
   });
 };

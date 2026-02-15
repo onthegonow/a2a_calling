@@ -128,8 +128,11 @@ class ConversationDriver {
     this.tier = options.tier || 'public';
     this.summarizer = options.summarizer || null;
     this.ownerContext = options.ownerContext || {};
+    this.claudeMode = options.runtime?.mode === 'claude';
+    this.claudeTimeoutMs = options.claudeTimeoutMs || 180000;
 
-    this.client = new A2AClient({ caller: this.caller, timeout: 65000 });
+    const clientTimeout = this.claudeMode ? 200000 : 65000;
+    this.client = new A2AClient({ caller: this.caller, timeout: clientTimeout });
   }
 
   /**
@@ -351,18 +354,30 @@ Be concise but specific. No filler.`;
       // 5. Call runtime.runTurn() to generate next message
       const sessionId = `a2a-${conversationId}`;
       let rawResponse;
+      const contextPayload = {
+        conversationId,
+        tier: this.tier,
+        ownerName: this.agentContext.owner,
+        agentName: this.agentContext.name,
+        roleContext: 'You initiated this call.'
+      };
+      if (this.claudeMode) {
+        contextPayload.turnCount = turn + 1;
+        contextPayload.maxTurns = this.maxTurns;
+        contextPayload.phase = collabState.phase;
+        contextPayload.overlapScore = collabState.overlapScore;
+        contextPayload.activeThreads = collabState.activeThreads;
+        contextPayload.candidateCollaborations = collabState.candidateCollaborations;
+        contextPayload.closeSignal = collabState.closeSignal;
+      }
       try {
         rawResponse = await this.runtime.runTurn({
           sessionId,
           prompt,
           message: remoteText,
           caller: this.caller,
-          timeoutMs: 65000,
-          context: {
-            conversationId,
-            tier: this.tier,
-            ownerName: this.agentContext.owner
-          }
+          timeoutMs: this.claudeMode ? this.claudeTimeoutMs : 65000,
+          context: contextPayload
         });
       } catch (err) {
         logger.error('Runtime turn failed', {
@@ -374,33 +389,59 @@ Be concise but specific. No filler.`;
       }
 
       // 6. Extract collab state from response
-      const parsed = extractCollaborationState(rawResponse);
-      nextMessage = parsed.cleanText || rawResponse;
+      // In claude mode, use the side channel (getLastTurnMeta) for state/flags
+      const turnMeta = this.claudeMode ? this.runtime.getLastTurnMeta?.(sessionId) : null;
 
-      if (parsed.hasState && parsed.statePatch) {
-        if (parsed.statePatch.phase) collabState.phase = parsed.statePatch.phase;
-        if (parsed.statePatch.overlapScore != null) {
-          collabState.overlapScore = Math.max(0, Math.min(1, parsed.statePatch.overlapScore));
+      if (turnMeta?.statePatch) {
+        // Claude subagent returned structured state — apply it directly
+        nextMessage = rawResponse;
+        const sp = turnMeta.statePatch;
+        if (sp.phase) collabState.phase = sp.phase;
+        if (sp.overlapScore != null) {
+          collabState.overlapScore = Math.max(0, Math.min(1, sp.overlapScore));
         }
-        if (Array.isArray(parsed.statePatch.activeThreads)) {
-          collabState.activeThreads = parsed.statePatch.activeThreads.slice(0, 4);
+        if (Array.isArray(sp.activeThreads)) {
+          collabState.activeThreads = sp.activeThreads.slice(0, 4);
         }
-        if (Array.isArray(parsed.statePatch.candidateCollaborations)) {
-          collabState.candidateCollaborations = parsed.statePatch.candidateCollaborations.slice(0, 4);
+        if (Array.isArray(sp.candidateCollaborations)) {
+          collabState.candidateCollaborations = sp.candidateCollaborations.slice(0, 4);
         }
-        if (parsed.statePatch.closeSignal != null) {
-          collabState.closeSignal = Boolean(parsed.statePatch.closeSignal);
+        if (sp.closeSignal != null) {
+          collabState.closeSignal = Boolean(sp.closeSignal);
         }
-        if (parsed.statePatch.confidence != null) {
-          collabState.confidence = Math.max(0, Math.min(1, parsed.statePatch.confidence));
+        if (sp.confidence != null) {
+          collabState.confidence = Math.max(0, Math.min(1, sp.confidence));
         }
       } else {
-        // No <collab_state> in response (generic/fallback runtime) — infer progression
-        const inferred = inferStateProgression(collabState, remoteText, turn + 1);
-        if (inferred.phase) collabState.phase = inferred.phase;
-        if (inferred.overlapScore != null) collabState.overlapScore = inferred.overlapScore;
-        if (inferred.confidence != null) collabState.confidence = inferred.confidence;
-        if (inferred.closeSignal != null) collabState.closeSignal = inferred.closeSignal;
+        // Non-claude path: extract from <collab_state> tags in response text
+        const parsed = extractCollaborationState(rawResponse);
+        nextMessage = parsed.cleanText || rawResponse;
+
+        if (parsed.hasState && parsed.statePatch) {
+          if (parsed.statePatch.phase) collabState.phase = parsed.statePatch.phase;
+          if (parsed.statePatch.overlapScore != null) {
+            collabState.overlapScore = Math.max(0, Math.min(1, parsed.statePatch.overlapScore));
+          }
+          if (Array.isArray(parsed.statePatch.activeThreads)) {
+            collabState.activeThreads = parsed.statePatch.activeThreads.slice(0, 4);
+          }
+          if (Array.isArray(parsed.statePatch.candidateCollaborations)) {
+            collabState.candidateCollaborations = parsed.statePatch.candidateCollaborations.slice(0, 4);
+          }
+          if (parsed.statePatch.closeSignal != null) {
+            collabState.closeSignal = Boolean(parsed.statePatch.closeSignal);
+          }
+          if (parsed.statePatch.confidence != null) {
+            collabState.confidence = Math.max(0, Math.min(1, parsed.statePatch.confidence));
+          }
+        } else {
+          // No <collab_state> in response (generic/fallback runtime) — infer progression
+          const inferred = inferStateProgression(collabState, remoteText, turn + 1);
+          if (inferred.phase) collabState.phase = inferred.phase;
+          if (inferred.overlapScore != null) collabState.overlapScore = inferred.overlapScore;
+          if (inferred.confidence != null) collabState.confidence = inferred.confidence;
+          if (inferred.closeSignal != null) collabState.closeSignal = inferred.closeSignal;
+        }
       }
 
       // 6b. Overlap flatline detection — if overlap hasn't changed significantly
@@ -424,6 +465,16 @@ Be concise but specific. No filler.`;
         } catch (err) {
           // Best effort
         }
+      }
+
+      // 7b. Store flags from claude subagent responses
+      if (turnMeta?.flags?.length > 0 && this.convStore && dbConversationStarted) {
+        this.convStore.addMessage(conversationId, {
+          direction: 'outbound',
+          role: 'system',
+          content: `[flags] ${turnMeta.flags.map(f => f.content || f.type).join('; ')}`,
+          metadata: JSON.stringify({ flags: turnMeta.flags, turn: turn + 1 })
+        });
       }
 
       // onTurn callback for progress output

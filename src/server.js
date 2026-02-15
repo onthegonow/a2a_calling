@@ -2,7 +2,7 @@
 /**
  * A2A Server
  * 
- * Routes A2A calls through a runtime adapter (OpenClaw or generic fallback).
+ * Routes A2A calls through a runtime adapter (OpenClaw or Claude).
  * Auto-adds contacts, generates summaries, notifies owner.
  */
 
@@ -210,7 +210,7 @@ function collectTopicKeywords(tierTopics) {
   const objectivesList = tierTopics?.objectives || [];
 
   for (const item of topicsList) {
-    for (const part of [item?.topic, item?.description, item?.detail]) {
+    for (const part of [item?.topic, item?.description]) {
       if (!part) continue;
       const terms = String(part)
         .toLowerCase()
@@ -673,8 +673,8 @@ async function callAgent(message, a2aContext) {
       return cleanResponse || '[Sub-agent returned empty response]';
     
   } catch (err) {
-    callLogger.error('Runtime turn handling failed; using fallback response', {
-      event: 'call_turn_failed_fallback',
+    callLogger.error('Runtime turn handling failed', {
+      event: 'call_turn_failed',
       error_code: 'RUNTIME_TURN_FAILED',
       hint: 'Inspect runtime adapter logs in this trace to identify CLI/bridge failure.',
       error: err,
@@ -682,11 +682,7 @@ async function callAgent(message, a2aContext) {
         phase: 'runtime_turn'
       }
     });
-    return runtime.buildFallbackResponse(message, {
-      caller: a2aContext.caller,
-      ownerName: agentContext.owner,
-      allowedTopics: a2aContext.allowed_topics || []
-    }, err.message);
+    throw err;
   }
 }
 
