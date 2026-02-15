@@ -21,7 +21,7 @@ function isClaudeAvailable() {
   try {
     execSync('command -v claude', { stdio: 'ignore' });
     return true;
-  } catch (err) {
+  } catch {
     return false;
   }
 }

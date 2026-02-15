@@ -31,13 +31,6 @@ function cleanText(value, maxLength = 300) {
     .slice(0, maxLength);
 }
 
-function toBool(value, fallback = true) {
-  if (value === undefined || value === null || value === '') {
-    return fallback;
-  }
-  const normalized = String(value).trim().toLowerCase();
-  return !(normalized === '0' || normalized === 'false' || normalized === 'no');
-}
 
 function resolveRuntimeMode() {
   const requested = String(process.env.A2A_RUNTIME || 'auto').trim().toLowerCase();
@@ -90,7 +83,7 @@ function resolveRuntimeMode() {
       requested,
       hasOpenClaw,
       hasClaude,
-      warning: 'A2A_RUNTIME=openclaw but openclaw CLI not found; install openclaw CLI or switch to openclaw',
+      warning: 'A2A_RUNTIME=openclaw but openclaw CLI not found; install openclaw CLI or switch to claude',
       reason: 'forced-openclaw-missing'
     };
   }
@@ -138,21 +131,10 @@ function normalizeOpenClawOutput(raw) {
   return lines.join('\n').trim();
 }
 
-function escapeCliValue(value) {
-  return String(value || '')
-    .replace(/\\/g, '\\\\')     // Backslashes first
-    .replace(/"/g, '\\"')       // Double quotes
-    .replace(/\$/g, '\\$')      // Dollar signs (variable expansion)
-    .replace(/`/g, '\\`')       // Backticks (command substitution)
-    .replace(/!/g, '\\!')       // History expansion in some shells
-    .replace(/\n/g, '\\n')      // Newlines
-    .replace(/\r/g, '');        // Carriage returns
-}
 
 function createRuntimeAdapter(options = {}) {
   const workspaceDir = options.workspaceDir || process.cwd();
   const modeInfo = resolveRuntimeMode();
-  const failoverEnabled = toBool(process.env.A2A_RUNTIME_FAILOVER, true);
   const logger = options.logger || createLogger({ component: 'a2a.runtime' });
 
   logger.info('Runtime adapter initialized', {
@@ -162,8 +144,7 @@ function createRuntimeAdapter(options = {}) {
       requested_mode: modeInfo.requested,
       reason: modeInfo.reason,
       has_openclaw: modeInfo.hasOpenClaw,
-      has_claude: modeInfo.hasClaude,
-      failover_enabled: failoverEnabled
+      has_claude: modeInfo.hasClaude
     }
   });
 
@@ -552,7 +533,6 @@ function createRuntimeAdapter(options = {}) {
     hasClaude: modeInfo.hasClaude,
     reason: modeInfo.reason,
     warning: modeInfo.warning || null,
-    failoverEnabled,
     runTurn,
     summarize,
     notify,

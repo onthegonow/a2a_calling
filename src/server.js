@@ -899,7 +899,6 @@ async function startServer() {
         port,
         agent_name: agentContext.name,
         runtime_mode: runtime.mode,
-        failover_enabled: runtime.failoverEnabled,
         collaboration_mode: resolveCollabMode(),
         features: ['adaptive collaboration', 'auto-contacts', 'summaries', 'dashboard']
       }

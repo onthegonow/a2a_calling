@@ -69,7 +69,6 @@ module.exports = function (test, assert) {
       {
         A2A_RUNTIME: 'auto',
         PATH: process.env.PATH, // claude is in PATH in this environment
-        A2A_AGENT_COMMAND: undefined
       },
       () => {
         const { resolveRuntimeMode } = loadAdapterModule();

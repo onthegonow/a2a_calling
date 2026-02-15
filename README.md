@@ -410,11 +410,7 @@ app.listen(3001);
 | `A2A_PORT` | Server port (default: 3001) |
 | `A2A_CONFIG_DIR` | Config directory (default: `~/.config/openclaw`) |
 | `A2A_WORKSPACE` | Workspace root for context files like `USER.md` (default: current directory) |
-| `A2A_RUNTIME` | Runtime mode: `auto` (default), `openclaw`, or `generic` |
-| `A2A_RUNTIME_FAILOVER` | Fallback to generic runtime if OpenClaw runtime errors (default: `true`) |
-| `A2A_AGENT_COMMAND` | Generic runtime command for inbound turn handling (reads JSON from stdin) |
-| `A2A_SUMMARY_COMMAND` | Generic runtime command for call summaries (reads JSON from stdin) |
-| `A2A_NOTIFY_COMMAND` | Generic runtime command for owner notifications (reads JSON from stdin) |
+| `A2A_RUNTIME` | Runtime mode: `auto` (default), `openclaw`, or `claude` |
 | `A2A_AGENT_NAME` | Override local agent display name |
 | `A2A_OWNER_NAME` | Override owner display name |
 | `A2A_COLLAB_MODE` | Conversation style: `adaptive` (default) or `deep_dive` |

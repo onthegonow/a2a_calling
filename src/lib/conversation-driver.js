@@ -56,7 +56,7 @@ function detectRemoteTermination(text) {
 
 /**
  * Infer collaboration state progression when the runtime doesn't emit
- * <collab_state> tags (generic/fallback mode). Advances phase based on
+ * <collab_state> tags (e.g. OpenClaw without adaptive mode). Advances phase based on
  * turn count and estimates overlap from remote text analysis.
  */
 function inferStateProgression(collabState, remoteText, turn) {
