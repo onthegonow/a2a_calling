@@ -91,13 +91,13 @@ Test profiles live in `test/profiles/` and define a complete agent identity that
 5. **Disclosure manifest** — maps to `a2a-disclosure.json`:
    ```javascript
    manifest: {
-     version: 1,
+     version: 2,
      personality_notes: '...',
-     topics: {
+     tiers: {
        public: {
-         lead_with: [{ topic: '...', detail: '...' }],
-         discuss_freely: [...],
-         deflect: [...]
+         topics: [{ topic: '...', description: '...' }],
+         objectives: [{ objective: '...', description: '...' }],
+         do_not_discuss: [{ topic: '...', reason: '...' }]
        },
        friends: { ... },  // Merged with public when accessed at friends tier
        family: { ... }    // Merged with public + friends at family tier
@@ -123,9 +123,9 @@ Test profiles live in `test/profiles/` and define a complete agent identity that
 
 | What you want                  | Where it goes                                |
 |-------------------------------|----------------------------------------------|
-| Things to lead conversations with | `manifest.topics.<tier>.lead_with`        |
-| Things to discuss openly       | `manifest.topics.<tier>.discuss_freely`      |
-| Things to acknowledge but redirect | `manifest.topics.<tier>.deflect`        |
+| Discussion topics              | `manifest.tiers.<tier>.topics`               |
+| Conversation objectives        | `manifest.tiers.<tier>.objectives`           |
+| Topics to redirect             | `manifest.tiers.<tier>.do_not_discuss`       |
 | Absolute information blocks    | `manifest.never_disclose`                    |
 | API/tool access level          | `token.tier` + `token.allowedTopics`         |
 | Response style preferences     | `token.tierSettings`                         |

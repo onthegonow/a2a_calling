@@ -691,4 +691,190 @@ module.exports = function (test, assert, helpers) {
     const result = await driver.run('Hello!');
     assert.equal(result.turnCount, 2, `Expected 2 turns, got ${result.turnCount}`);
   });
+
+  // ── Claude Mode Integration Tests ──────────────────────────
+
+  test('driver passes enriched context to runTurn when runtime.mode is claude', async () => {
+    const { ConversationDriver } = require('../../src/lib/conversation-driver');
+
+    const capturedContexts = [];
+    const mockClaudeRuntime = {
+      mode: 'claude',
+      runTurn: async ({ sessionId, prompt, message, caller, context, timeoutMs }) => {
+        capturedContexts.push(context);
+        return 'Claude reply';
+      },
+      getLastTurnMeta: () => null
+    };
+
+    const remoteResponses = [
+      { response: 'Hello!', can_continue: true, conversation_id: 'conv_claude' },
+      { response: 'Bye', can_continue: false, conversation_id: 'conv_claude' }
+    ];
+
+    const driver = new ConversationDriver({
+      runtime: mockClaudeRuntime,
+      agentContext: { name: 'claude-agent', owner: 'owner' },
+      caller: { name: 'remote-agent' },
+      endpoint: 'a2a://localhost:9999/fake_token',
+      minTurns: 1,
+      maxTurns: 5
+    });
+
+    const mockClient = createMockClient(remoteResponses);
+    driver.client = mockClient;
+
+    await driver.run('Hello!');
+
+    // The context passed to runTurn should include claude-specific enrichment
+    assert.ok(capturedContexts.length >= 1, 'Should have captured at least one context');
+    const ctx = capturedContexts[0];
+    assert.ok(ctx.turnCount != null, 'Context should include turnCount');
+    assert.ok(ctx.maxTurns != null, 'Context should include maxTurns');
+    assert.ok(ctx.phase != null, 'Context should include phase');
+    assert.ok(ctx.overlapScore != null, 'Context should include overlapScore');
+    assert.ok(Array.isArray(ctx.activeThreads), 'Context should include activeThreads');
+    assert.ok(Array.isArray(ctx.candidateCollaborations), 'Context should include candidateCollaborations');
+    assert.ok(ctx.closeSignal != null, 'Context should include closeSignal');
+    assert.ok(ctx.agentName, 'Context should include agentName');
+  });
+
+  test('driver stores flags in conversation DB when claude mode returns flags', async () => {
+    const { ConversationDriver } = require('../../src/lib/conversation-driver');
+
+    const messages = [];
+    const mockConvStore = {
+      startConversation: () => ({ id: 'conv_flags' }),
+      addMessage: (convId, msg) => {
+        messages.push({ convId, ...msg });
+        return { id: 'msg_test' };
+      },
+      saveCollabState: () => ({ success: true }),
+      concludeConversation: async () => ({ success: true })
+    };
+
+    let turnCount = 0;
+    const mockClaudeRuntime = {
+      mode: 'claude',
+      runTurn: async () => {
+        turnCount++;
+        return 'Claude response';
+      },
+      getLastTurnMeta: () => ({
+        statePatch: { phase: 'exploring', overlapScore: 0.5 },
+        flags: [
+          { type: 'opportunity_flagged', content: 'Joint API integration possible' },
+          { type: 'unverifiable_claim', content: 'They claim 10x speed' }
+        ]
+      })
+    };
+
+    const remoteResponses = [
+      { response: 'Hello!', can_continue: true, conversation_id: 'conv_flags' },
+      { response: 'Done', can_continue: false, conversation_id: 'conv_flags' }
+    ];
+
+    const driver = new ConversationDriver({
+      runtime: mockClaudeRuntime,
+      agentContext: { name: 'claude-agent', owner: 'owner' },
+      caller: { name: 'remote-agent' },
+      endpoint: 'a2a://localhost:9999/fake_token',
+      convStore: mockConvStore,
+      minTurns: 1,
+      maxTurns: 5
+    });
+
+    const mockClient = createMockClient(remoteResponses);
+    driver.client = mockClient;
+
+    await driver.run('Hello!');
+
+    // Should have stored flag messages
+    const flagMessages = messages.filter(m => m.content && m.content.startsWith('[flags]'));
+    assert.ok(flagMessages.length >= 1, 'Should have stored at least one flag message');
+    assert.includes(flagMessages[0].content, 'Joint API integration');
+  });
+
+  test('driver uses increased timeout when in claude mode', async () => {
+    const { ConversationDriver } = require('../../src/lib/conversation-driver');
+
+    let capturedTimeout = null;
+    const mockClaudeRuntime = {
+      mode: 'claude',
+      runTurn: async ({ timeoutMs }) => {
+        capturedTimeout = timeoutMs;
+        return 'Reply';
+      },
+      getLastTurnMeta: () => null
+    };
+
+    const remoteResponses = [
+      { response: 'Hello!', can_continue: true, conversation_id: 'conv_timeout' },
+      { response: 'Done', can_continue: false, conversation_id: 'conv_timeout' }
+    ];
+
+    const driver = new ConversationDriver({
+      runtime: mockClaudeRuntime,
+      agentContext: { name: 'claude-agent', owner: 'owner' },
+      caller: { name: 'remote-agent' },
+      endpoint: 'a2a://localhost:9999/fake_token',
+      minTurns: 1,
+      maxTurns: 5
+    });
+
+    const mockClient = createMockClient(remoteResponses);
+    driver.client = mockClient;
+
+    await driver.run('Hello!');
+
+    assert.ok(capturedTimeout >= 180000,
+      `Expected timeout >= 180000ms for claude mode, got ${capturedTimeout}`);
+  });
+
+  test('driver applies claude statePatch directly via side channel', async () => {
+    const { ConversationDriver } = require('../../src/lib/conversation-driver');
+
+    const mockClaudeRuntime = {
+      mode: 'claude',
+      runTurn: async () => 'Claude thinks this is promising',
+      getLastTurnMeta: () => ({
+        statePatch: {
+          phase: 'deepening',
+          overlapScore: 0.72,
+          activeThreads: ['AI safety', 'Ethics'],
+          candidateCollaborations: ['Joint paper'],
+          closeSignal: false,
+          confidence: 0.65
+        },
+        flags: []
+      })
+    };
+
+    // Remote responds 3 times then closes
+    const remoteResponses = [
+      { response: 'Interesting topic!', can_continue: true, conversation_id: 'conv_state' },
+      { response: 'Tell me more', can_continue: true, conversation_id: 'conv_state' },
+      { response: 'Done', can_continue: false, conversation_id: 'conv_state' }
+    ];
+
+    const driver = new ConversationDriver({
+      runtime: mockClaudeRuntime,
+      agentContext: { name: 'claude-agent', owner: 'owner' },
+      caller: { name: 'remote-agent' },
+      endpoint: 'a2a://localhost:9999/fake_token',
+      minTurns: 1,
+      maxTurns: 10
+    });
+
+    const mockClient = createMockClient(remoteResponses);
+    driver.client = mockClient;
+
+    const result = await driver.run('Hello!');
+
+    // State should reflect the claude statePatch, not inferred state
+    assert.equal(result.collabState.phase, 'deepening');
+    assert.equal(result.collabState.overlapScore, 0.72);
+    assert.deepEqual(result.collabState.activeThreads, ['AI safety', 'Ethics']);
+    assert.deepEqual(result.collabState.candidateCollaborations, ['Joint paper']);
+  });
 };

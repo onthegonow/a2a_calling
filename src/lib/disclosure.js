@@ -32,7 +32,7 @@ function dedupeByTopic(items) {
     seen.add(topic.toLowerCase());
     out.push({
       topic,
-      description: normalizeTopic(item && (item.description || item.detail))
+      description: normalizeTopic(item && item.description)
     });
   }
   return out;
@@ -152,7 +152,7 @@ function saveManifest(manifest) {
  */
 function getTopicsForTier(tier) {
   const manifest = loadManifest();
-  const tiers = manifest.tiers || manifest.topics || {};
+  const tiers = manifest.tiers || {};
 
   const tierIndex = TIER_HIERARCHY.indexOf(tier);
   if (tierIndex === -1) {
@@ -195,7 +195,7 @@ function getTopicsForTier(tier) {
 function formatTopicsForPrompt(tierTopics) {
   const formatTopicList = (items) => {
     if (!items || items.length === 0) return '  (none specified)';
-    return items.map(item => `  - ${item.topic}: ${item.description || item.detail || ''}`).join('\n');
+    return items.map(item => `  - ${item.topic}: ${item.description || ''}`).join('\n');
   };
 
   const formatObjectiveList = (items) => {
@@ -363,10 +363,9 @@ function validateDisclosureSubmission(data) {
     return { valid: false, manifest: null, errors: ['Submission must be a non-null object'] };
   }
 
-  // Support both new format (tiers) and legacy format (topics)
-  const tiersData = data.tiers || data.topics;
+  const tiersData = data.tiers;
   if (!tiersData || typeof tiersData !== 'object' || Array.isArray(tiersData)) {
-    errors.push('Submission must include a "tiers" object (or legacy "topics" object)');
+    errors.push('Submission must include a "tiers" object');
     return { valid: false, manifest: null, errors };
   }
 

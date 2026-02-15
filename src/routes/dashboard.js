@@ -157,13 +157,13 @@ function parseTopicObjects(values) {
       detail = sanitizeString(parts.slice(1).join(':') || parts[0], 250);
     } else if (entry && typeof entry === 'object') {
       topic = sanitizeString(entry.topic, 120);
-      detail = sanitizeString(entry.detail || entry.topic, 250);
+      detail = sanitizeString(entry.description || entry.topic, 250);
     }
 
     if (!topic) continue;
     if (seen.has(topic)) continue;
     seen.add(topic);
-    cleaned.push({ topic, detail: detail || topic });
+    cleaned.push({ topic, description: detail || topic });
     if (cleaned.length >= 100) break;
   }
   return cleaned;
@@ -1045,7 +1045,7 @@ function createDashboardApiRouter(options = {}) {
     const cfg = context.config.getAll();
     const manifest = loadManifest();
     const configTiers = cfg.tiers || {};
-    const manifestTiers = manifest.topics || {};
+    const manifestTiers = manifest.tiers || {};
     const tierIds = new Set([...Object.keys(configTiers), ...Object.keys(manifestTiers)]);
 
     const tiers = Array.from(tierIds).sort().map(tierId => {
@@ -1195,8 +1195,8 @@ function createDashboardApiRouter(options = {}) {
     }
 
     const manifest = loadManifest();
-    if (manifest.topics && manifest.topics[fromTier]) {
-      manifest.topics[toTier] = JSON.parse(JSON.stringify(manifest.topics[fromTier]));
+    if (manifest.tiers && manifest.tiers[fromTier]) {
+      manifest.tiers[toTier] = JSON.parse(JSON.stringify(manifest.tiers[fromTier]));
       saveManifest(manifest);
     }
 

@@ -20,9 +20,9 @@ module.exports = function (test, assert, helpers) {
       roleContext: 'They called you.',
       accessTier: 'friends',
       tierTopics: {
-        leadWithTopics: '  - Market trend analysis: Tracking precious metals',
-        discussFreelyTopics: '  - Art and design history: From Art Nouveau...',
-        deflectTopics: '  - Personal collection details: Redirect',
+        topics: '  - Market trend analysis: Tracking precious metals',
+        objectives: '  - Art and design history: From Art Nouveau...',
+        doNotDiscuss: '  - Personal collection details: Redirect',
         neverDisclose: '  - Bank account numbers'
       },
       otherAgentGreeting: profile.callScenarios.claudebotCall.message,
@@ -73,9 +73,9 @@ module.exports = function (test, assert, helpers) {
       roleContext: 'They called you.',
       accessTier: 'friends',
       tierTopics: {
-        leadWithTopics: '  - Topic A: detail',
-        discussFreelyTopics: '  - Topic B: detail',
-        deflectTopics: '  - Topic C: detail',
+        topics: '  - Topic A: detail',
+        objectives: '  - Topic B: detail',
+        doNotDiscuss: '  - Topic C: detail',
         neverDisclose: '  - Secret thing'
       },
       otherAgentGreeting: 'Hi',
@@ -83,9 +83,8 @@ module.exports = function (test, assert, helpers) {
     });
 
     assert.includes(prompt, 'INFORMATION BOUNDARIES');
-    assert.includes(prompt, 'LEAD WITH');
-    assert.includes(prompt, 'DISCUSS FREELY');
-    assert.includes(prompt, 'DEFLECT');
+    assert.includes(prompt, 'TOPICS (discuss openly)');
+    assert.includes(prompt, 'DO NOT DISCUSS (redirect)');
     assert.includes(prompt, 'NEVER disclose');
     assert.includes(prompt, 'Access level for this call: friends');
   });
@@ -169,7 +168,7 @@ module.exports = function (test, assert, helpers) {
       personalityNotes: ''
     });
 
-    assert.includes(prompt, 'STRATEGIC GOALS');
+    assert.includes(prompt, 'OBJECTIVES FOR THIS CALL');
     assert.includes(prompt, 'find-collaborators');
     assert.includes(prompt, 'explore-partnerships');
     assert.includes(prompt, 'grow-network');
@@ -193,7 +192,7 @@ module.exports = function (test, assert, helpers) {
       personalityNotes: ''
     });
 
-    assert.includes(prompt, 'No specific goals configured');
+    assert.includes(prompt, 'No specific objectives configured');
     assert.includes(prompt, 'general discovery');
   });
 
@@ -227,17 +226,17 @@ module.exports = function (test, assert, helpers) {
 
     // Simulate what getTopicsForTier('friends') would return for Golda's manifest
     const mergedTopics = {
-      lead_with: [
-        ...profile.manifest.topics.public.lead_with,
-        ...profile.manifest.topics.friends.lead_with
+      topics: [
+        ...profile.manifest.tiers.public.topics,
+        ...profile.manifest.tiers.friends.topics
       ],
-      discuss_freely: [
-        ...profile.manifest.topics.public.discuss_freely,
-        ...profile.manifest.topics.friends.discuss_freely
+      objectives: [
+        ...profile.manifest.tiers.public.objectives,
+        ...profile.manifest.tiers.friends.objectives
       ],
-      deflect: [
-        ...profile.manifest.topics.public.deflect,
-        ...profile.manifest.topics.friends.deflect
+      do_not_discuss: [
+        ...profile.manifest.tiers.public.do_not_discuss,
+        ...profile.manifest.tiers.friends.do_not_discuss
       ],
       never_disclose: profile.manifest.never_disclose
     };

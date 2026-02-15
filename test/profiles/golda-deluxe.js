@@ -27,11 +27,11 @@
  *                  of { topic, detail } objects, plus never_disclose strings
  *    d) callScenarios — sample messages/contexts for integration tests
  *
- * 3. Interests map to disclosure manifest topics:
- *    - Things the agent LEADS WITH → manifest.topics.<tier>.lead_with
- *    - Things it DISCUSSES FREELY  → manifest.topics.<tier>.discuss_freely
- *    - Things it DEFLECTS          → manifest.topics.<tier>.deflect
- *    - Hard blocks                 → manifest.never_disclose
+ * 3. Interests map to disclosure manifest tiers:
+ *    - Things the agent discusses openly → manifest.tiers.<tier>.topics
+ *    - Objectives for conversations     → manifest.tiers.<tier>.objectives
+ *    - Things it redirects              → manifest.tiers.<tier>.do_not_discuss
+ *    - Hard blocks                      → manifest.never_disclose
  *
  * 4. Permissions map to token tier + allowedTopics:
  *    - public:  ['chat']
@@ -51,12 +51,12 @@
  *   allowed_goals, tier_settings, disclosure, notify, max_calls,
  *   calls_made, created_at, expires_at, revoked
  *
- * Manifest structure:
- *   { version, generated_at, updated_at, topics: { public, friends, family },
+ * Manifest structure (v2):
+ *   { version: 2, generated_at, updated_at, tiers: { public, friends, family },
  *     never_disclose: [], personality_notes: "" }
  *
- * Each tier in topics:
- *   { lead_with: [{topic, detail}], discuss_freely: [...], deflect: [...] }
+ * Each tier in tiers:
+ *   { topics: [{topic, description}], objectives: [{objective, description}], do_not_discuss: [{topic, reason}] }
  */
 
 module.exports = {
@@ -98,50 +98,50 @@ module.exports = {
   },
 
   // ── Disclosure Manifest ─────────────────────────────────────────
-  // Maps to a2a-disclosure.json structure
+  // Maps to a2a-disclosure.json structure (v2)
   manifest: {
-    version: 1,
+    version: 2,
     personality_notes: 'Refined and analytical with a taste for the finer things. ' +
       'Prefers depth over breadth. Will challenge vague claims with specific questions.',
-    topics: {
+    tiers: {
       public: {
-        lead_with: [
-          { topic: 'Market trend analysis', detail: 'Tracking precious metals, luxury goods indices, and emerging alternative assets' },
-          { topic: 'Quality craftsmanship', detail: 'Deep interest in artisan techniques, provenance verification, and material science' }
+        topics: [
+          { topic: 'Market trend analysis', description: 'Tracking precious metals, luxury goods indices, and emerging alternative assets' },
+          { topic: 'Quality craftsmanship', description: 'Deep interest in artisan techniques, provenance verification, and material science' }
         ],
-        discuss_freely: [
-          { topic: 'Art and design history', detail: 'From Art Nouveau to contemporary — emphasis on functional design' },
-          { topic: 'Culinary exploration', detail: 'Techniques, regional cuisines, ingredient sourcing — not just restaurants' },
-          { topic: 'Sustainable luxury', detail: 'How premium quality intersects with environmental responsibility' }
+        objectives: [
+          { objective: 'Art and design history', description: 'From Art Nouveau to contemporary — emphasis on functional design' },
+          { objective: 'Culinary exploration', description: 'Techniques, regional cuisines, ingredient sourcing — not just restaurants' },
+          { objective: 'Sustainable luxury', description: 'How premium quality intersects with environmental responsibility' }
         ],
-        deflect: [
-          { topic: 'Personal collection details', detail: 'Redirect — suggest owners discuss valuations directly' },
-          { topic: 'Specific financial positions', detail: 'Acknowledge interest in markets without revealing holdings' }
+        do_not_discuss: [
+          { topic: 'Personal collection details', reason: 'Redirect — suggest owners discuss valuations directly' },
+          { topic: 'Specific financial positions', reason: 'Acknowledge interest in markets without revealing holdings' }
         ]
       },
       friends: {
-        lead_with: [
-          { topic: 'Current acquisition targets', detail: 'Actively evaluating mid-century modern furniture and Japanese ceramics' },
-          { topic: 'Collaboration on authentication', detail: 'Building a network for provenance verification using AI + expert panels' }
+        topics: [
+          { topic: 'Current acquisition targets', description: 'Actively evaluating mid-century modern furniture and Japanese ceramics' },
+          { topic: 'Collaboration on authentication', description: 'Building a network for provenance verification using AI + expert panels' }
         ],
-        discuss_freely: [
-          { topic: 'Investment philosophy', detail: 'Tangible assets as hedge, quality over quantity, 10-year hold minimum' },
-          { topic: 'Travel for sourcing', detail: 'Upcoming trips to Milan, Kyoto, and São Paulo for direct acquisition' },
-          { topic: 'Technology in authentication', detail: 'ML models for materials analysis, blockchain provenance tracking' }
+        objectives: [
+          { objective: 'Investment philosophy', description: 'Tangible assets as hedge, quality over quantity, 10-year hold minimum' },
+          { objective: 'Travel for sourcing', description: 'Upcoming trips to Milan, Kyoto, and São Paulo for direct acquisition' },
+          { objective: 'Technology in authentication', description: 'ML models for materials analysis, blockchain provenance tracking' }
         ],
-        deflect: [
-          { topic: 'Portfolio valuations', detail: 'Share general strategy but not specific numbers' }
+        do_not_discuss: [
+          { topic: 'Portfolio valuations', reason: 'Share general strategy but not specific numbers' }
         ]
       },
       family: {
-        lead_with: [
-          { topic: 'Estate planning', detail: 'Working on cataloging and future disposition of collection' }
+        topics: [
+          { topic: 'Estate planning', description: 'Working on cataloging and future disposition of collection' }
         ],
-        discuss_freely: [
-          { topic: 'Health and wellness', detail: 'Personal routines, biohacking experiments, longevity research' },
-          { topic: 'Legacy projects', detail: 'Foundation work, mentorship programs, educational initiatives' }
+        objectives: [
+          { objective: 'Health and wellness', description: 'Personal routines, biohacking experiments, longevity research' },
+          { objective: 'Legacy projects', description: 'Foundation work, mentorship programs, educational initiatives' }
         ],
-        deflect: []
+        do_not_discuss: []
       }
     },
     never_disclose: [
