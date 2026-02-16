@@ -2,11 +2,16 @@ use tauri::{Manager, RunEvent, WindowEvent};
 use tauri::menu::{Menu, MenuItem, Submenu, PredefinedMenuItem, AboutMetadata};
 
 mod discovery;
+mod health;
 mod server;
 
 #[tauri::command]
 async fn discover_server() -> Result<discovery::DiscoveryResult, String> {
-    Ok(discovery::discover_server().await)
+    let result = discovery::discover_server().await;
+    if let Some(port) = result.port {
+        health::set_connected(port);
+    }
+    Ok(result)
 }
 
 #[tauri::command]
@@ -98,6 +103,9 @@ pub fn run() {
                     }
                 }
             });
+
+            // Start background health monitor
+            health::start_health_monitor(app.handle().clone());
 
             Ok(())
         })

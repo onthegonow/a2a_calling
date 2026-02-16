@@ -135,6 +135,38 @@
 
     // Start discovery on load
     checkServer();
+
+    // Listen for server disconnect/reconnect from Tauri backend
+    const { listen } = window.__TAURI__.event;
+
+    listen('server-status', (event) => {
+      const { connected, port } = event.payload;
+      if (!connected) {
+        showReconnectionOverlay();
+      } else {
+        hideReconnectionOverlay();
+      }
+    });
+
+    function showReconnectionOverlay() {
+      if (document.getElementById('reconnect-overlay')) return;
+      const overlay = document.createElement('div');
+      overlay.id = 'reconnect-overlay';
+      overlay.innerHTML = `
+        <div style="position:fixed;top:0;left:0;right:0;z-index:9999;
+          background:#fef3c7;border-bottom:2px solid #f59e0b;padding:12px 24px;
+          text-align:center;font-family:-apple-system,sans-serif;font-size:14px;color:#92400e;">
+          <span style="display:inline-block;width:8px;height:8px;border-radius:50%;
+            background:#f59e0b;margin-right:8px;animation:pulse 1.5s infinite;vertical-align:middle;"></span>
+          Server disconnected — Reconnecting...
+        </div>`;
+      document.body.appendChild(overlay);
+    }
+
+    function hideReconnectionOverlay() {
+      const overlay = document.getElementById('reconnect-overlay');
+      if (overlay) overlay.remove();
+    }
   </script>
 </body>
 </html>
