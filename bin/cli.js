@@ -2273,6 +2273,24 @@ a2a add "${inviteUrl}" "${ownerText || 'friend'}" && a2a call "${ownerText || 'f
       console.log('Removing database... ⏭️');
     }
 
+    // Remove native macOS app if present
+    if (os.platform() === 'darwin') {
+      const appCandidates = [
+        path.join(os.homedir(), 'Applications', 'A2A Callbook.app'),
+        '/Applications/A2A Callbook.app',
+      ];
+      for (const appPath of appCandidates) {
+        if (fs.existsSync(appPath)) {
+          try {
+            fs.rmSync(appPath, { recursive: true, force: true });
+            console.log(`Removed ${appPath}`);
+          } catch (err) {
+            console.log(`Could not remove ${appPath}: ${err.message}`);
+          }
+        }
+      }
+    }
+
     console.log('\nTo complete removal:');
     console.log('  npm uninstall -g a2acalling\n');
     console.log(`Config preserved: ${keepConfig ? 'yes' : 'no'}`);
