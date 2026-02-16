@@ -153,4 +153,52 @@ module.exports = function (test, assert, helpers) {
 
     tmp.cleanup();
   });
+
+  test('server.js writes PID file on startup and removes on exit', async () => {
+    const tmp = helpers.tmpConfigDir('pid-server-lifecycle');
+    const pidPath = path.join(tmp.dir, 'a2a-server.pid');
+
+    // Start the real server with a random high port
+    const port = 19870 + Math.floor(Math.random() * 100);
+    const child = spawn(process.execPath, [
+      path.join(__dirname, '../../src/server.js')
+    ], {
+      env: { ...process.env, A2A_CONFIG_DIR: tmp.dir, PORT: String(port) },
+      detached: true,
+      stdio: 'ignore'
+    });
+    child.unref();
+
+    // Wait for server to start and write PID file
+    let pidWritten = false;
+    for (let i = 0; i < 30; i++) {
+      if (fs.existsSync(pidPath)) {
+        pidWritten = true;
+        break;
+      }
+      await new Promise(r => setTimeout(r, 200));
+    }
+
+    assert.ok(pidWritten, 'Server should write PID file on startup');
+    const writtenPid = parseInt(fs.readFileSync(pidPath, 'utf8').trim(), 10);
+    assert.equal(writtenPid, child.pid, 'PID file should contain server PID');
+
+    // Send SIGTERM and verify PID file is cleaned up
+    process.kill(child.pid, 'SIGTERM');
+    let pidRemoved = false;
+    for (let i = 0; i < 30; i++) {
+      if (!fs.existsSync(pidPath)) {
+        pidRemoved = true;
+        break;
+      }
+      await new Promise(r => setTimeout(r, 200));
+    }
+
+    assert.ok(pidRemoved, 'Server should remove PID file on SIGTERM');
+
+    // Cleanup: ensure process is dead
+    try { process.kill(child.pid, 'SIGKILL'); } catch (e) {}
+
+    tmp.cleanup();
+  });
 };

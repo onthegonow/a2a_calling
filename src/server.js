@@ -22,6 +22,7 @@ const {
 } = require('./lib/prompt-template');
 const { findAvailablePort } = require('./lib/port-scanner');
 const { createLogger } = require('./lib/logger');
+const { writePidFile, removePidFile } = require('./lib/pid-file');
 
 const DEFAULT_PORTS = [80, 3001, 8080, 8443, 9001];
 const requestedPort = process.env.PORT ? parseInt(process.env.PORT, 10)
@@ -903,6 +904,7 @@ async function startServer() {
         features: ['adaptive collaboration', 'auto-contacts', 'summaries', 'dashboard']
       }
     });
+    writePidFile(process.pid);
   });
 
   server.on('error', (err) => {
@@ -917,6 +919,16 @@ async function startServer() {
     }
     throw err;
   });
+
+  // Graceful shutdown: clean up PID file
+  function shutdown() {
+    removePidFile();
+    server.close(() => process.exit(0));
+    // Force exit after 5s if connections won't close
+    setTimeout(() => process.exit(0), 5000).unref();
+  }
+  process.on('SIGTERM', shutdown);
+  process.on('SIGINT', shutdown);
 }
 
 startServer();
