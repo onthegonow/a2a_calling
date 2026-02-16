@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>A2A Callbook</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'IBM Plex Sans', sans-serif;
+      background: linear-gradient(180deg, #eef3f8 0%, #f8f9fb 100%);
+      color: #1a1a2e;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+    }
+    .status-card {
+      background: #fff;
+      border: 1px solid #d0d7de;
+      border-radius: 12px;
+      padding: 48px;
+      text-align: center;
+      max-width: 420px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+    }
+    h1 { font-size: 20px; font-weight: 600; margin-bottom: 8px; }
+    .subtitle { color: #666; font-size: 14px; margin-bottom: 24px; }
+    .status-indicator {
+      display: inline-block;
+      width: 10px; height: 10px;
+      border-radius: 50%;
+      margin-right: 8px;
+      vertical-align: middle;
+    }
+    .status-indicator.searching { background: #f59e0b; animation: pulse 1.5s infinite; }
+    .status-indicator.disconnected { background: #ef4444; }
+    .status-indicator.connected { background: #22c55e; }
+    @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
+    .status-text { font-size: 14px; margin-bottom: 24px; color: #444; }
+    .port-info { font-size: 12px; color: #888; margin-bottom: 16px; font-family: monospace; }
+    button {
+      background: #1466c1; color: #fff; border: none; border-radius: 8px;
+      padding: 10px 24px; font-size: 14px; cursor: pointer; margin: 4px;
+      font-family: inherit;
+    }
+    button:hover { background: #1052a0; }
+    button.secondary {
+      background: transparent; color: #1466c1; border: 1px solid #1466c1;
+    }
+    button.secondary:hover { background: #eef3f8; }
+    #error-detail { color: #ef4444; font-size: 12px; margin-top: 12px; display: none; }
+  </style>
+</head>
+<body>
+  <div class="status-card">
+    <h1>A2A Callbook</h1>
+    <p class="subtitle">Agent-to-agent communication dashboard</p>
+
+    <div id="status-searching">
+      <p class="status-text">
+        <span class="status-indicator searching"></span>
+        Looking for a2a server...
+      </p>
+      <p class="port-info" id="port-info">Scanning ports: 3001, 80, 8080, 8443, 9001</p>
+    </div>
+
+    <div id="status-not-found" style="display:none;">
+      <p class="status-text">
+        <span class="status-indicator disconnected"></span>
+        Server not running
+      </p>
+      <p class="port-info" id="last-port">No a2a server found on common ports</p>
+      <button id="btn-start">Start Server</button>
+      <button id="btn-retry" class="secondary">Retry</button>
+      <p id="error-detail"></p>
+    </div>
+
+    <div id="status-connected" style="display:none;">
+      <p class="status-text">
+        <span class="status-indicator connected"></span>
+        Connected to server
+      </p>
+      <p class="port-info" id="connected-port"></p>
+    </div>
+  </div>
+
+  <script>
+    const { invoke } = window.__TAURI__.core;
+
+    async function checkServer() {
+      show('status-searching');
+      try {
+        const result = await invoke('discover_server');
+        if (result.port) {
+          show('status-connected');
+          document.getElementById('connected-port').textContent =
+            `localhost:${result.port}`;
+          // Navigate to live SPA
+          setTimeout(() => {
+            window.location.href =
+              `http://127.0.0.1:${result.port}/api/a2a/dashboard/` +
+              (window.__TAB_HASH || '');
+          }, 400);
+        } else {
+          show('status-not-found');
+        }
+      } catch (err) {
+        show('status-not-found');
+        const detail = document.getElementById('error-detail');
+        detail.textContent = err;
+        detail.style.display = 'block';
+      }
+    }
+
+    function show(id) {
+      ['status-searching', 'status-not-found', 'status-connected']
+        .forEach(s => document.getElementById(s).style.display = 'none');
+      document.getElementById(id).style.display = 'block';
+    }
+
+    document.getElementById('btn-start')?.addEventListener('click', async () => {
+      try {
+        await invoke('start_server');
+        // Wait for server to boot, then retry
+        setTimeout(checkServer, 2000);
+      } catch (err) {
+        const detail = document.getElementById('error-detail');
+        detail.textContent = `Failed to start: ${err}`;
+        detail.style.display = 'block';
+      }
+    });
+
+    document.getElementById('btn-retry')?.addEventListener('click', checkServer);
+
+    // Start discovery on load
+    checkServer();
+  </script>
+</body>
+</html>

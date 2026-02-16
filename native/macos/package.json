@@ -1,0 +1,8 @@
+{
+  "name": "a2a-callbook-macos",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "tauri": "cargo tauri"
+  }
+}
