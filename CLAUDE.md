@@ -72,6 +72,34 @@ You get notified (if configured).
 - `src/routes/a2a.js` - Express router (mount at `/api/a2a`)
 - `docs/protocol.md` - Full protocol spec
 
+## Native macOS App (Tauri)
+
+Located in `native/macos/`. Tauri v2 app wrapping the dashboard SPA.
+
+### Dev setup
+```bash
+# Install Rust: https://rustup.rs
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+
+# Install Tauri CLI
+cargo install tauri-cli --version "^2"
+
+# Dev mode (live reload)
+cd native/macos/src-tauri
+cargo tauri dev
+
+# Production build
+cargo tauri build
+```
+
+### Key files
+- `native/macos/src-tauri/src/lib.rs` - App entry, menus, event handling
+- `native/macos/src-tauri/src/discovery.rs` - Port scanning / server detection
+- `native/macos/src-tauri/src/health.rs` - Background health monitor
+- `native/macos/src-tauri/src/notifications.rs` - macOS notification bridge
+- `native/macos/src-tauri/src/server.rs` - Server lifecycle (start/stop)
+- `native/macos/index.html` - Loading page (shown before server found)
+
 ## Testing
 
 ```bash
