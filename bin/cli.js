@@ -149,6 +149,23 @@ function openInBrowser(url) {
   }
 }
 
+function findNativeApp() {
+  if (os.platform() !== 'darwin') return null;
+
+  const candidates = [
+    path.join(os.homedir(), 'Applications', 'A2A Callbook.app'),
+    '/Applications/A2A Callbook.app',
+  ];
+
+  for (const appPath of candidates) {
+    try {
+      if (fs.existsSync(appPath)) return appPath;
+    } catch (_) {}
+  }
+
+  return null;
+}
+
 async function findLocalServerPort(preferredPorts = []) {
   const http = require('http');
 
@@ -1474,6 +1491,18 @@ a2a add "${inviteUrl}" "${ownerText || 'friend'}" && a2a call "${ownerText || 'f
         console.log('Could not auto-open browser.');
       }
       return;
+    }
+
+    // Prefer native app on macOS (--browser flag forces browser)
+    if (!args.flags.browser) {
+      const nativeApp = findNativeApp();
+      if (nativeApp) {
+        console.log('Opening A2A Callbook native app...');
+        const result = openInBrowser(nativeApp);
+        if (result.attempted) {
+          return;
+        }
+      }
     }
 
     const preferred = [];
