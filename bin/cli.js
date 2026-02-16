@@ -490,6 +490,19 @@ function generateProxyConfig(backendPort) {
   return { hasNginx, hasCaddy, nginxConfig, caddyConfig };
 }
 
+function extractNameFromPersonality(notes) {
+  if (!notes || typeof notes !== 'string') return null;
+  const patterns = [
+    /(?:I'm|I am|My name is|Name:|Owner:)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)/,
+    /^([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)\s+(?:is|here|speaking)/
+  ];
+  for (const p of patterns) {
+    const m = notes.match(p);
+    if (m && m[1]) return m[1].trim();
+  }
+  return null;
+}
+
 async function handleDisclosureSubmit(args, commandLabel = 'onboard') {
   const submitRaw = args.flags.submit;
   if (!submitRaw) return false;
@@ -538,18 +551,29 @@ async function handleDisclosureSubmit(args, commandLabel = 'onboard') {
 
   const tiersData = manifest.tiers || {};
 
+  // Derive goals from disclosure objectives (used in tier config and token creation)
+  const disclosureObjectives = (tiersData.public?.objectives || [])
+    .map(o => typeof o === 'string' ? o : (o && o.objective || ''))
+    .map(s => s.trim().toLowerCase().replace(/\s+/g, '-').slice(0, 60))
+    .filter(Boolean);
+
+  const tokenGoals = disclosureObjectives.length > 0
+    ? [...new Set(disclosureObjectives)].slice(0, 5)
+    : ['grow-network', 'find-collaborators', 'build-in-public'];
+
   try {
     config.setTier('public', {
       topics: getTierTopics(tiersData.public),
-      disclosure: 'public'
+      goals: tokenGoals,
+      disclosure: 'minimal'
     });
     config.setTier('friends', {
       topics: [...getTierTopics(tiersData.public), ...getTierTopics(tiersData.friends)],
-      disclosure: 'minimal'
+      disclosure: 'standard'
     });
     config.setTier('family', {
       topics: [...getTierTopics(tiersData.public), ...getTierTopics(tiersData.friends), ...getTierTopics(tiersData.family)],
-      disclosure: 'minimal'
+      disclosure: 'full'
     });
   } catch (err) {
     console.error(`  Warning: could not sync tier config: ${err.message}`);
@@ -563,21 +587,34 @@ async function handleDisclosureSubmit(args, commandLabel = 'onboard') {
 
   console.log('\nStep 4 of 4: Generating your first invite...\n');
 
-  const agentName = args.flags.name || config.getAgent().name || process.env.A2A_AGENT_NAME || 'my-agent';
+  // Extract identity from disclosure submission (parsed = raw JSON, result = validated)
+  const ownerName = parsed.owner_name
+    || extractNameFromPersonality(result.manifest?.personality_notes)
+    || process.env.USER
+    || 'Agent Owner';
+
+  const agentName = args.flags.name
+    || parsed.agent_name
+    || config.getAgent().name
+    || process.env.A2A_AGENT_NAME
+    || `${ownerName}'s Agent`;
+
+  // Save identity to config
+  config.setAgent({ name: agentName, owner_name: ownerName });
+
   const hostname = config.getAgent().hostname || process.env.A2A_HOSTNAME || 'localhost';
-  if (args.flags.name) config.setAgent({ name: agentName });
 
   const publicTopics = getTierTopics(tiersData.public);
 
   const { token } = store.create({
     name: agentName,
-    owner: agentName,
+    owner: ownerName,
     permissions: 'public',
     disclosure: 'minimal',
     expires: 'never',
     maxCalls: null,
     allowedTopics: publicTopics,
-    allowedGoals: ['grow-network', 'find-collaborators', 'build-in-public'],
+    allowedGoals: tokenGoals,
     notify: 'all'
   });
 
