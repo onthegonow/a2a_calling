@@ -608,6 +608,8 @@ Use ALL available context to build a reasonable disclosure profile. If truly not
 
   const jsonBlock = `\`\`\`json
 {
+  "owner_name": "The human owner's real name (extracted from USER.md, git config, etc.)",
+  "agent_name": "The agent's display name (extracted from USER.md or workspace context)",
   "tiers": {
     "public": {
       "topics": [

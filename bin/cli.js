@@ -29,6 +29,7 @@ const ONBOARDING_EXEMPT = new Set([
   'quickstart',
   'help',
   'version',
+  'status',
   'update',
   'uninstall',
   'onboard',
@@ -75,7 +76,7 @@ const store = new TokenStore();
 // rather than falling through to the interactive quickstart flow.
 // These are outbound operations often invoked by agents/automation.
 const ONBOARDING_HARD_FAIL = new Set([
-  'call', 'ping', 'status'
+  'call', 'ping'
 ]);
 
 // ── enforceOnboarding ────────────────────────────────────────────────────
@@ -489,6 +490,19 @@ function generateProxyConfig(backendPort) {
   return { hasNginx, hasCaddy, nginxConfig, caddyConfig };
 }
 
+function extractNameFromPersonality(notes) {
+  if (!notes || typeof notes !== 'string') return null;
+  const patterns = [
+    /(?:I'm|I am|My name is|Name:|Owner:)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)/,
+    /^([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)\s+(?:is|here|speaking)/
+  ];
+  for (const p of patterns) {
+    const m = notes.match(p);
+    if (m && m[1]) return m[1].trim();
+  }
+  return null;
+}
+
 async function handleDisclosureSubmit(args, commandLabel = 'onboard') {
   const submitRaw = args.flags.submit;
   if (!submitRaw) return false;
@@ -537,18 +551,29 @@ async function handleDisclosureSubmit(args, commandLabel = 'onboard') {
 
   const tiersData = manifest.tiers || {};
 
+  // Derive goals from disclosure objectives (used in tier config and token creation)
+  const disclosureObjectives = (tiersData.public?.objectives || [])
+    .map(o => typeof o === 'string' ? o : (o && o.objective || ''))
+    .map(s => s.trim().toLowerCase().replace(/\s+/g, '-').slice(0, 60))
+    .filter(Boolean);
+
+  const tokenGoals = disclosureObjectives.length > 0
+    ? [...new Set(disclosureObjectives)].slice(0, 5)
+    : ['grow-network', 'find-collaborators', 'build-in-public'];
+
   try {
     config.setTier('public', {
       topics: getTierTopics(tiersData.public),
-      disclosure: 'public'
+      goals: tokenGoals,
+      disclosure: 'minimal'
     });
     config.setTier('friends', {
       topics: [...getTierTopics(tiersData.public), ...getTierTopics(tiersData.friends)],
-      disclosure: 'minimal'
+      disclosure: 'standard'
     });
     config.setTier('family', {
       topics: [...getTierTopics(tiersData.public), ...getTierTopics(tiersData.friends), ...getTierTopics(tiersData.family)],
-      disclosure: 'minimal'
+      disclosure: 'full'
     });
   } catch (err) {
     console.error(`  Warning: could not sync tier config: ${err.message}`);
@@ -562,21 +587,34 @@ async function handleDisclosureSubmit(args, commandLabel = 'onboard') {
 
   console.log('\nStep 4 of 4: Generating your first invite...\n');
 
-  const agentName = args.flags.name || config.getAgent().name || process.env.A2A_AGENT_NAME || 'my-agent';
+  // Extract identity from disclosure submission (parsed = raw JSON, result = validated)
+  const ownerName = parsed.owner_name
+    || extractNameFromPersonality(result.manifest?.personality_notes)
+    || process.env.USER
+    || 'Agent Owner';
+
+  const agentName = args.flags.name
+    || parsed.agent_name
+    || config.getAgent().name
+    || process.env.A2A_AGENT_NAME
+    || `${ownerName}'s Agent`;
+
+  // Save identity to config
+  config.setAgent({ name: agentName, owner_name: ownerName });
+
   const hostname = config.getAgent().hostname || process.env.A2A_HOSTNAME || 'localhost';
-  if (args.flags.name) config.setAgent({ name: agentName });
 
   const publicTopics = getTierTopics(tiersData.public);
 
   const { token } = store.create({
     name: agentName,
-    owner: agentName,
+    owner: ownerName,
     permissions: 'public',
     disclosure: 'minimal',
     expires: 'never',
     maxCalls: null,
     allowedTopics: publicTopics,
-    allowedGoals: ['grow-network', 'find-collaborators', 'build-in-public'],
+    allowedGoals: tokenGoals,
     notify: 'all'
   });
 
@@ -1537,20 +1575,83 @@ a2a add "${inviteUrl}" "${ownerText || 'friend'}" && a2a call "${ownerText || 'f
 
   status: async (args) => {
     const url = args._[1];
-    if (!url) {
-      console.error('Usage: a2a status <invite_url>');
-      process.exit(1);
+
+    // If a URL is provided, check that remote agent's status
+    if (url) {
+      const client = new A2AClient();
+      try {
+        const status = await client.status(url);
+        console.log(`A2A status for ${url}:\n`);
+        console.log(JSON.stringify(status, null, 2));
+      } catch (err) {
+        console.error(`❌ Failed to get status: ${err.message}`);
+        process.exit(1);
+      }
+      return;
     }
 
-    const client = new A2AClient();
-    try {
-      const status = await client.status(url);
-      console.log(`A2A status for ${url}:\n`);
-      console.log(JSON.stringify(status, null, 2));
-    } catch (err) {
-      console.error(`❌ Failed to get status: ${err.message}`);
-      process.exit(1);
+    // No URL — show local server status
+    const { A2AConfig } = require('../src/lib/config');
+    const config = new A2AConfig();
+    const onboarding = config.getOnboarding();
+    const agent = config.getAgent();
+
+    console.log('A2A Local Status\n');
+
+    // Onboarding state
+    const onboarded = onboarding.version === 2 && onboarding.step === 'complete';
+    console.log(`  Onboarding:  ${onboarded ? '✅ Complete' : `⚠️  ${onboarding.step || 'not started'} (run: a2a quickstart)`}`);
+    console.log(`  Agent name:  ${agent.name || '(not set)'}`);
+    console.log(`  Hostname:    ${agent.hostname || '(not set)'}`);
+
+    // Check if server is running
+    const preferred = [];
+    if (onboarding.server_port) preferred.push(onboarding.server_port);
+    const port = await findLocalServerPort(preferred);
+    if (port) {
+      console.log(`  Server:      ✅ Running on port ${port}`);
+
+      // Fetch dashboard status for more detail
+      const http = require('http');
+      try {
+        const statusData = await new Promise((resolve, reject) => {
+          const req = http.request({
+            hostname: '127.0.0.1', port,
+            path: '/api/a2a/dashboard/status',
+            method: 'GET', timeout: 2000
+          }, (res) => {
+            let body = '';
+            res.on('data', c => body += c);
+            res.on('end', () => {
+              try { resolve(JSON.parse(body)); } catch (e) { reject(e); }
+            });
+          });
+          req.on('error', reject);
+          req.on('timeout', () => { req.destroy(); reject(new Error('timeout')); });
+          req.end();
+        });
+
+        if (statusData.agent) {
+          if (statusData.agent.owner_name) console.log(`  Owner:       ${statusData.agent.owner_name}`);
+        }
+        if (statusData.invite_host) {
+          console.log(`  Invite host: ${statusData.invite_host}`);
+        }
+        if (statusData.warnings && statusData.warnings.length) {
+          console.log('');
+          for (const w of statusData.warnings) {
+            console.log(`  ⚠️  ${w}`);
+          }
+        }
+      } catch (_) {
+        // Dashboard status unavailable — that's fine, we already showed port
+      }
+    } else {
+      console.log('  Server:      ❌ Not running');
+      console.log('  Start with:  a2a server --port 3001');
     }
+
+    console.log(`\n  Tip: a2a status <invite_url> to check a remote agent`);
   },
 
   config: (args) => {
@@ -1945,6 +2046,9 @@ a2a add "${inviteUrl}" "${ownerText || 'friend'}" && a2a call "${ownerText || 'f
         // User chose 'continue' on non-standard port — brief reminder
         console.log(`\n  ⚠  Running on port ${serverPort} (non-standard).`);
         console.log(`  Invite hostname: ${publicHost}`);
+        console.log('');
+        console.log('  ⚠️  Remote agents using your invite URL will try port 80 by default.');
+        console.log('  Without a reverse proxy, inbound calls on port 80 will fail silently.');
         console.log(`\n  To set up a reverse proxy later:`);
         console.log(`    a2a config --hostname ${externalIp}`);
         console.log(`  Then configure nginx/caddy to proxy port 80 → ${serverPort}.`);
@@ -1952,6 +2056,45 @@ a2a add "${inviteUrl}" "${ownerText || 'friend'}" && a2a call "${ownerText || 'f
 
       const verifyUrl = `http://${publicHost}/api/a2a/ping`;
       console.log(`\n  Verify: curl -s ${verifyUrl}`);
+
+      // Fix 6: Actually run the connectivity check
+      const http = require('http');
+      const verifyOk = await new Promise(resolve => {
+        const req = http.request({
+          hostname: '127.0.0.1',
+          port: serverPort,
+          path: '/api/a2a/ping',
+          method: 'GET',
+          timeout: 2000
+        }, (res) => {
+          res.resume();
+          resolve(res.statusCode === 200);
+        });
+        req.on('error', () => resolve(false));
+        req.on('timeout', () => { req.destroy(); resolve(false); });
+        req.end();
+      });
+
+      if (verifyOk) {
+        console.log('  ✅ Local connectivity verified');
+      } else {
+        console.log('  ⚠️  Local server check failed — server may still be starting');
+      }
+
+      // Fix 7: Surface invite-host warnings during quickstart
+      try {
+        const { resolveInviteHost } = require('../src/lib/invite-host');
+        const resolved = await resolveInviteHost({
+          hostname: publicHost,
+          port: serverPort
+        });
+        if (resolved.warnings && resolved.warnings.length) {
+          console.log('\n  ━━━ Network Warnings ━━━');
+          for (const w of resolved.warnings) {
+            console.warn(`  ⚠️  ${w}`);
+          }
+        }
+      } catch (_) {}
     }
 
     // Save server config and advance onboarding state to awaiting_disclosure.
@@ -2513,6 +2656,13 @@ Examples:
 
 // Main
 const args = parseArgs(process.argv);
+
+// Handle --version flag before command dispatch (standard CLI convention)
+if (args.flags.version || args.flags.v) {
+  commands.version();
+  process.exit(0);
+}
+
 const command = args._[0] || 'help';
 
 if (!commands[command]) {
