@@ -1,5 +1,6 @@
 use tauri::{Manager, RunEvent, WindowEvent};
 use tauri::menu::{Menu, MenuItem, Submenu, PredefinedMenuItem, AboutMetadata};
+use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri_plugin_deep_link::DeepLinkExt;
 
 mod discovery;
@@ -111,6 +112,39 @@ pub fn run() {
 
             // Start notification poller
             notifications::start_notification_poller(app.handle().clone());
+
+            // Menu bar tray icon
+            let show = MenuItem::with_id(app, "show", "Show A2A Callbook", true, None::<&str>)?;
+            let tray_quit = MenuItem::with_id(app, "tray-quit", "Quit", true, None::<&str>)?;
+            let tray_menu = Menu::with_items(app, &[&show, &tray_quit])?;
+
+            let _tray = TrayIconBuilder::new()
+                .tooltip("A2A Callbook")
+                .menu(&tray_menu)
+                .on_menu_event(|app, event| {
+                    match event.id().0.as_str() {
+                        "show" => {
+                            if let Some(window) = app.get_webview_window("main") {
+                                let _ = window.show();
+                                let _ = window.set_focus();
+                            }
+                        }
+                        "tray-quit" => {
+                            app.exit(0);
+                        }
+                        _ => {}
+                    }
+                })
+                .on_tray_icon_event(|tray, event| {
+                    if let TrayIconEvent::Click { button: MouseButton::Left, button_state: MouseButtonState::Up, .. } = event {
+                        let app = tray.app_handle();
+                        if let Some(window) = app.get_webview_window("main") {
+                            let _ = window.show();
+                            let _ = window.set_focus();
+                        }
+                    }
+                })
+                .build(app)?;
 
             // Handle a2a:// deep links
             let deep_link_handle = app.handle().clone();
