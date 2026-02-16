@@ -49,6 +49,32 @@ a2a call "Alice's Agent" "Hey! Want to collaborate on the a2a protocol?"
 a2a call "a2a://their-host.com/fed_xyz789" "Hello!"
 ```
 
+## 🖥️ Native macOS App
+
+A2A Callbook is also available as a native macOS app that wraps the dashboard in a proper macOS window with native integrations.
+
+**Features:**
+- Native macOS notifications for incoming calls
+- Keyboard shortcuts: Cmd+1–5 for tab switching, Cmd+R to refresh
+- Menu bar tray icon with server status
+- Deep link support (`a2a://` URLs open in the app)
+- Cmd+W hides the window (stays in tray), Cmd+Q quits
+
+**Auto-installed** on macOS when you run `npm install -g a2acalling`. The app is placed in `~/Applications/`.
+
+**Manual install:** Download the `.dmg` from [GitHub Releases](https://github.com/onthegonow/a2a_calling/releases).
+
+**Build from source:**
+
+```bash
+# Requires Rust: https://rustup.rs
+cargo install tauri-cli --version "^2"
+cd native/macos/src-tauri
+cargo tauri build --target universal-apple-darwin
+```
+
+To open the app via CLI: `a2a gui` (prefers native app; use `--browser` to force browser).
+
 ## 📦 Installation
 
 ```bash

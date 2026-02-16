@@ -149,6 +149,23 @@ function openInBrowser(url) {
   }
 }
 
+function findNativeApp() {
+  if (os.platform() !== 'darwin') return null;
+
+  const candidates = [
+    path.join(os.homedir(), 'Applications', 'A2A Callbook.app'),
+    '/Applications/A2A Callbook.app',
+  ];
+
+  for (const appPath of candidates) {
+    try {
+      if (fs.existsSync(appPath)) return appPath;
+    } catch (_) {}
+  }
+
+  return null;
+}
+
 async function findLocalServerPort(preferredPorts = []) {
   const http = require('http');
 
@@ -1476,6 +1493,18 @@ a2a add "${inviteUrl}" "${ownerText || 'friend'}" && a2a call "${ownerText || 'f
       return;
     }
 
+    // Prefer native app on macOS (--browser flag forces browser)
+    if (!args.flags.browser) {
+      const nativeApp = findNativeApp();
+      if (nativeApp) {
+        console.log('Opening A2A Callbook native app...');
+        const result = openInBrowser(nativeApp);
+        if (result.attempted) {
+          return;
+        }
+      }
+    }
+
     const preferred = [];
     if (args.flags.port || args.flags.p) preferred.push(args.flags.port || args.flags.p);
     if (process.env.A2A_PORT) preferred.push(process.env.A2A_PORT);
@@ -2242,6 +2271,24 @@ a2a add "${inviteUrl}" "${ownerText || 'friend'}" && a2a call "${ownerText || 'f
     } else {
       console.log('Removing config... ⏭️');
       console.log('Removing database... ⏭️');
+    }
+
+    // Remove native macOS app if present
+    if (os.platform() === 'darwin') {
+      const appCandidates = [
+        path.join(os.homedir(), 'Applications', 'A2A Callbook.app'),
+        '/Applications/A2A Callbook.app',
+      ];
+      for (const appPath of appCandidates) {
+        if (fs.existsSync(appPath)) {
+          try {
+            fs.rmSync(appPath, { recursive: true, force: true });
+            console.log(`Removed ${appPath}`);
+          } catch (err) {
+            console.log(`Could not remove ${appPath}: ${err.message}`);
+          }
+        }
+      }
     }
 
     console.log('\nTo complete removal:');
