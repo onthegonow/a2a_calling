@@ -1,7 +1,7 @@
 use std::sync::atomic::{AtomicBool, AtomicU16, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
-use tauri::Emitter;
+use tauri::{Emitter, Manager};
 
 static CONNECTED: AtomicBool = AtomicBool::new(false);
 static CURRENT_PORT: AtomicU16 = AtomicU16::new(0);
@@ -32,10 +32,12 @@ pub fn start_health_monitor(app: tauri::AppHandle) {
             }
 
             let url = format!("http://127.0.0.1:{}/api/a2a/ping", port);
-            let client = reqwest::Client::builder()
+            let client = match reqwest::Client::builder()
                 .timeout(Duration::from_millis(1500))
-                .build()
-                .unwrap();
+                .build() {
+                Ok(c) => c,
+                Err(_) => continue,
+            };
 
             let ok = match client.get(&url).send().await {
                 Ok(resp) => resp.status().is_success(),
@@ -50,6 +52,12 @@ pub fn start_health_monitor(app: tauri::AppHandle) {
                     "connected": ok,
                     "port": port
                 }));
+                // Navigate back to loader page on disconnect so reconnection UI is shown
+                if !ok {
+                    if let Some(window) = handle.get_webview_window("main") {
+                        let _ = window.navigate("tauri://localhost".parse().unwrap());
+                    }
+                }
             }
         }
     });

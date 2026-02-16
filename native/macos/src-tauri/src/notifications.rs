@@ -18,7 +18,7 @@ struct Conversation {
     contact_name: Option<String>,
     summary: Option<String>,
     status: Option<String>,
-    created_at: Option<String>,
+    started_at: Option<String>,
 }
 
 /// Poll for new inbound calls and fire native notifications
@@ -87,6 +87,14 @@ pub fn start_notification_poller(app: tauri::AppHandle) {
                     .title(&format!("Inbound call from {}", caller))
                     .body(summary)
                     .show();
+            }
+
+            // Prevent unbounded memory growth — cap at 1000 entries
+            if seen_set.len() > 1000 {
+                seen_set.clear();
+                for conv in &conversations {
+                    seen_set.insert(conv.id.clone());
+                }
             }
         }
     });

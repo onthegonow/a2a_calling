@@ -22,7 +22,7 @@ struct OnboardingConfig {
 }
 
 /// Read port from ~/.config/openclaw/a2a-config.json
-fn read_config_port() -> Option<u16> {
+pub fn read_config_port() -> Option<u16> {
     let config_dir = std::env::var("A2A_CONFIG_DIR")
         .or_else(|_| std::env::var("OPENCLAW_CONFIG_DIR"))
         .map(PathBuf::from)

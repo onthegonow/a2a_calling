@@ -44,8 +44,11 @@ pub fn start_server() -> StartResult {
         }
     };
 
+    let port = crate::discovery::read_config_port().unwrap_or(3001);
+    let port_str = port.to_string();
+
     let result = Command::new(&binary)
-        .args(["server", "--port", "3001"])
+        .args(["server", "--port", &port_str])
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
         .stdin(std::process::Stdio::null())
@@ -54,7 +57,7 @@ pub fn start_server() -> StartResult {
     match result {
         Ok(_child) => StartResult {
             success: true,
-            message: "Server starting on port 3001...".to_string(),
+            message: format!("Server starting on port {}...", port),
         },
         Err(err) => StartResult {
             success: false,

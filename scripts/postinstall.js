@@ -77,8 +77,8 @@ function installMacOSApp() {
     const tmpFile = path.join(os.tmpdir(), `a2a-callbook-${version}.tar.gz`);
 
     // Download
-    const { execSync } = require('child_process');
-    execSync(`curl -sL -o "${tmpFile}" "${tarUrl}"`, { timeout: 30000 });
+    const { execFileSync } = require('child_process');
+    execFileSync('curl', ['-sL', '-o', tmpFile, tarUrl], { timeout: 30000 });
 
     if (!fs.existsSync(tmpFile) || fs.statSync(tmpFile).size < 1000) {
       return; // Download failed or too small — skip silently
@@ -88,7 +88,7 @@ function installMacOSApp() {
     fs.mkdirSync(appDir, { recursive: true });
 
     // Extract
-    execSync(`tar -xzf "${tmpFile}" -C "${appDir}"`, { timeout: 15000 });
+    execFileSync('tar', ['-xzf', tmpFile, '-C', appDir], { timeout: 15000 });
 
     // Cleanup
     try { fs.unlinkSync(tmpFile); } catch (_) {}
