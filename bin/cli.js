@@ -2000,7 +2000,15 @@ a2a add "${inviteUrl}" "${ownerText || 'friend'}" && a2a call "${ownerText || 'f
 
     if (serverPid) {
       console.log('  Server started.');
-      config.setOnboarding({ server_pid: serverPid, server_port: serverPort });
+      const existingPids = (config.getOnboarding().server_pids || []).filter(p => {
+        try { process.kill(p, 0); return true; } catch (e) { return false; }
+      });
+      if (!existingPids.includes(serverPid)) existingPids.push(serverPid);
+      config.setOnboarding({
+        server_pid: serverPid,
+        server_pids: existingPids,
+        server_port: serverPort
+      });
     } else {
       console.log('  Using existing server.');
     }
@@ -2331,24 +2339,43 @@ a2a add "${inviteUrl}" "${ownerText || 'friend'}" && a2a call "${ownerText || 'f
       }
     }
 
-    // Kill server by PID from config (detached process started by quickstart)
+    // Kill server by PID from config and PID file (detached process started by quickstart)
     // Then verify the port is actually freed; if not, find and kill whatever holds it.
     async function killServerPid() {
-      let pid, serverPort;
+      let pid, serverPort, serverPids = [];
       try {
         const { A2AConfig } = require('../src/lib/config');
         const cfg = new A2AConfig();
         const onboarding = cfg.getOnboarding();
         pid = onboarding.server_pid;
         serverPort = onboarding.server_port;
+        serverPids = Array.isArray(onboarding.server_pids) ? onboarding.server_pids : [];
       } catch (err) {
-        // Config read failed — not fatal, continue with pm2 path
-        return { ok: true, skipped: true };
+        // Config read failed — not fatal, continue
       }
 
-      // Step 1: Try to kill the PID from config
-      if (pid) {
-        killPidSync(pid);
+      // Step 0: Try PID file first (most reliable source)
+      try {
+        const { readPidFile, removePidFile } = require('../src/lib/pid-file');
+        const filePid = readPidFile();
+        if (filePid) {
+          killPidSync(filePid);
+          removePidFile();
+          // If config PID is the same, don't double-kill
+          if (filePid === pid) pid = null;
+        }
+      } catch (e) {
+        // pid-file module load failed — continue with config PID
+      }
+
+      // Step 1: Try to kill all tracked PIDs from config
+      const allPids = new Set();
+      if (pid) allPids.add(pid);
+      for (const p of serverPids) {
+        if (typeof p === 'number' && p > 0) allPids.add(p);
+      }
+      for (const p of allPids) {
+        killPidSync(p);
       }
 
       // Step 2: Verify the port is freed
@@ -2372,7 +2399,13 @@ a2a add "${inviteUrl}" "${ownerText || 'friend'}" && a2a call "${ownerText || 'f
         }
       }
 
-      return { ok: true, pid, port: serverPort, skipped: !pid };
+      // Clean up PID file if it still exists
+      try {
+        const { removePidFile } = require('../src/lib/pid-file');
+        removePidFile();
+      } catch (e) {}
+
+      return { ok: true, pid, port: serverPort, skipped: !pid && allPids.size === 0 };
     }
 
     process.stdout.write('Stopping server... ');
