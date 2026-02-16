@@ -1,0 +1,65 @@
+name: Build macOS App
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  build-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+
+      - name: Install Tauri CLI
+        run: cargo install tauri-cli --version "^2"
+
+      - name: Build universal binary
+        working-directory: native/macos/src-tauri
+        run: |
+          cargo tauri build --target universal-apple-darwin
+        env:
+          # For signed builds, add these secrets:
+          # APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          # APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          # APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          # APPLE_ID: ${{ secrets.APPLE_ID }}
+          # APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          # APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          TAURI_SIGNING_PRIVATE_KEY: ""
+
+      - name: Package artifacts
+        run: |
+          VERSION=${GITHUB_REF_NAME#v}
+          cd native/macos/src-tauri/target/universal-apple-darwin/release/bundle
+
+          # Create tar.gz of .app for postinstall download
+          if [ -d "macos/A2A Callbook.app" ]; then
+            cd macos
+            tar -czf "../A2A-Callbook-${VERSION}.app.tar.gz" "A2A Callbook.app"
+            cd ..
+          fi
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-app
+          path: |
+            native/macos/src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg
+            native/macos/src-tauri/target/universal-apple-darwin/release/bundle/A2A-Callbook-*.app.tar.gz
+
+      - name: Attach to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            native/macos/src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg
+            native/macos/src-tauri/target/universal-apple-darwin/release/bundle/A2A-Callbook-*.app.tar.gz
+        env:
+          GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
