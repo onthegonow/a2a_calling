@@ -3,6 +3,7 @@ use tauri::menu::{Menu, MenuItem, Submenu, PredefinedMenuItem, AboutMetadata};
 
 mod discovery;
 mod health;
+mod notifications;
 mod server;
 
 #[tauri::command]
@@ -106,6 +107,9 @@ pub fn run() {
 
             // Start background health monitor
             health::start_health_monitor(app.handle().clone());
+
+            // Start notification poller
+            notifications::start_notification_poller(app.handle().clone());
 
             Ok(())
         })
