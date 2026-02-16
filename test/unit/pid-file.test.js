@@ -201,4 +201,42 @@ module.exports = function (test, assert, helpers) {
 
     tmp.cleanup();
   });
+
+  test('repeated spawn-and-kill does not leak processes', async () => {
+    const tmp = helpers.tmpConfigDir('pid-no-leak');
+    const pf = requirePidFile(tmp.dir);
+    const pids = [];
+
+    // Simulate 3 quickstart runs: spawn → write PID → kill previous → spawn new
+    for (let i = 0; i < 3; i++) {
+      // Kill previous (what quickstart now does)
+      pf.killExistingServer();
+
+      // Spawn new
+      const child = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 60000)'], {
+        detached: true,
+        stdio: 'ignore'
+      });
+      child.unref();
+      pids.push(child.pid);
+      pf.writePidFile(child.pid);
+
+      await new Promise(r => setTimeout(r, 100));
+    }
+
+    // Only the LAST process should be alive
+    await new Promise(r => setTimeout(r, 300));
+    for (let i = 0; i < pids.length - 1; i++) {
+      assert.ok(!pf.isProcessAlive(pids[i]), `Process ${i} (PID ${pids[i]}) should be dead`);
+    }
+    assert.ok(pf.isProcessAlive(pids[pids.length - 1]), 'Last process should be alive');
+
+    // Cleanup
+    pf.killExistingServer();
+    for (const pid of pids) {
+      try { process.kill(pid, 'SIGKILL'); } catch (e) {}
+    }
+
+    tmp.cleanup();
+  });
 };
