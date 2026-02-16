@@ -2046,6 +2046,9 @@ a2a add "${inviteUrl}" "${ownerText || 'friend'}" && a2a call "${ownerText || 'f
         // User chose 'continue' on non-standard port — brief reminder
         console.log(`\n  ⚠  Running on port ${serverPort} (non-standard).`);
         console.log(`  Invite hostname: ${publicHost}`);
+        console.log('');
+        console.log('  ⚠️  Remote agents using your invite URL will try port 80 by default.');
+        console.log('  Without a reverse proxy, inbound calls on port 80 will fail silently.');
         console.log(`\n  To set up a reverse proxy later:`);
         console.log(`    a2a config --hostname ${externalIp}`);
         console.log(`  Then configure nginx/caddy to proxy port 80 → ${serverPort}.`);
@@ -2053,6 +2056,45 @@ a2a add "${inviteUrl}" "${ownerText || 'friend'}" && a2a call "${ownerText || 'f
 
       const verifyUrl = `http://${publicHost}/api/a2a/ping`;
       console.log(`\n  Verify: curl -s ${verifyUrl}`);
+
+      // Fix 6: Actually run the connectivity check
+      const http = require('http');
+      const verifyOk = await new Promise(resolve => {
+        const req = http.request({
+          hostname: '127.0.0.1',
+          port: serverPort,
+          path: '/api/a2a/ping',
+          method: 'GET',
+          timeout: 2000
+        }, (res) => {
+          res.resume();
+          resolve(res.statusCode === 200);
+        });
+        req.on('error', () => resolve(false));
+        req.on('timeout', () => { req.destroy(); resolve(false); });
+        req.end();
+      });
+
+      if (verifyOk) {
+        console.log('  ✅ Local connectivity verified');
+      } else {
+        console.log('  ⚠️  Local server check failed — server may still be starting');
+      }
+
+      // Fix 7: Surface invite-host warnings during quickstart
+      try {
+        const { resolveInviteHost } = require('../src/lib/invite-host');
+        const resolved = await resolveInviteHost({
+          hostname: publicHost,
+          port: serverPort
+        });
+        if (resolved.warnings && resolved.warnings.length) {
+          console.log('\n  ━━━ Network Warnings ━━━');
+          for (const w of resolved.warnings) {
+            console.warn(`  ⚠️  ${w}`);
+          }
+        }
+      } catch (_) {}
     }
 
     // Save server config and advance onboarding state to awaiting_disclosure.
