@@ -1635,7 +1635,8 @@ a2a add "${inviteUrl}" "${ownerText || 'friend'}" && a2a call "${ownerText || 'f
           if (statusData.agent.owner_name) console.log(`  Owner:       ${statusData.agent.owner_name}`);
         }
         if (statusData.invite_host) {
-          console.log(`  Invite host: ${statusData.invite_host}`);
+          const ih = typeof statusData.invite_host === 'object' ? statusData.invite_host.host : statusData.invite_host;
+          if (ih) console.log(`  Invite host: ${ih}`);
         }
         if (statusData.warnings && statusData.warnings.length) {
           console.log('');
