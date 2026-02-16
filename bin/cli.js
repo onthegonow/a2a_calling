@@ -1954,6 +1954,19 @@ a2a add "${inviteUrl}" "${ownerText || 'friend'}" && a2a call "${ownerText || 'f
       return;
     }
 
+    // Pre-start cleanup: kill any existing a2a server from a previous run
+    try {
+      const { killExistingServer } = require('../src/lib/pid-file');
+      const cleanup = killExistingServer();
+      if (cleanup.killed) {
+        console.log(`  Stopped previous server (PID ${cleanup.pid}).`);
+        // Brief pause to let the port free up
+        await new Promise(r => setTimeout(r, 500));
+      }
+    } catch (e) {
+      // Best effort — continue with startup
+    }
+
     const isAlreadyListening = await isPortListening(serverPort, '127.0.0.1', { timeoutMs: 250 });
     let serverPid = null;
     if (!isAlreadyListening.listening) {
