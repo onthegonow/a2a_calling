@@ -1,5 +1,6 @@
 use tauri::{Manager, RunEvent, WindowEvent};
 use tauri::menu::{Menu, MenuItem, Submenu, PredefinedMenuItem, AboutMetadata};
+use tauri_plugin_deep_link::DeepLinkExt;
 
 mod discovery;
 mod health;
@@ -110,6 +111,28 @@ pub fn run() {
 
             // Start notification poller
             notifications::start_notification_poller(app.handle().clone());
+
+            // Handle a2a:// deep links
+            let deep_link_handle = app.handle().clone();
+            app.deep_link().on_open_url(move |event| {
+                let urls = event.urls();
+                for url in urls {
+                    let url_str = url.to_string();
+                    // a2a://host/callbook/CODE or a2a://host/fed_TOKEN
+                    if let Some(window) = deep_link_handle.get_webview_window("main") {
+                        let _ = window.show();
+                        let _ = window.set_focus();
+                        // Pass URL to the SPA via JS
+                        let js = format!(
+                            "window.__A2A_DEEP_LINK = '{}'; \
+                             window.dispatchEvent(new CustomEvent('a2a-deep-link', {{ detail: '{}' }}))",
+                            url_str.replace('\\', "\\\\").replace('\'', "\\'"),
+                            url_str.replace('\\', "\\\\").replace('\'', "\\'")
+                        );
+                        let _ = window.eval(&js);
+                    }
+                }
+            });
 
             Ok(())
         })

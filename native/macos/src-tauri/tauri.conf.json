@@ -37,5 +37,12 @@
       "minimumSystemVersion": "12.0",
       "frameworks": []
     }
+  },
+  "plugins": {
+    "deep-link": {
+      "desktop": {
+        "schemes": ["a2a"]
+      }
+    }
   }
 }
