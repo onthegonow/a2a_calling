@@ -29,6 +29,7 @@ const ONBOARDING_EXEMPT = new Set([
   'quickstart',
   'help',
   'version',
+  'status',
   'update',
   'uninstall',
   'onboard',
@@ -75,7 +76,7 @@ const store = new TokenStore();
 // rather than falling through to the interactive quickstart flow.
 // These are outbound operations often invoked by agents/automation.
 const ONBOARDING_HARD_FAIL = new Set([
-  'call', 'ping', 'status'
+  'call', 'ping'
 ]);
 
 // ── enforceOnboarding ────────────────────────────────────────────────────
@@ -1537,20 +1538,83 @@ a2a add "${inviteUrl}" "${ownerText || 'friend'}" && a2a call "${ownerText || 'f
 
   status: async (args) => {
     const url = args._[1];
-    if (!url) {
-      console.error('Usage: a2a status <invite_url>');
-      process.exit(1);
+
+    // If a URL is provided, check that remote agent's status
+    if (url) {
+      const client = new A2AClient();
+      try {
+        const status = await client.status(url);
+        console.log(`A2A status for ${url}:\n`);
+        console.log(JSON.stringify(status, null, 2));
+      } catch (err) {
+        console.error(`❌ Failed to get status: ${err.message}`);
+        process.exit(1);
+      }
+      return;
     }
 
-    const client = new A2AClient();
-    try {
-      const status = await client.status(url);
-      console.log(`A2A status for ${url}:\n`);
-      console.log(JSON.stringify(status, null, 2));
-    } catch (err) {
-      console.error(`❌ Failed to get status: ${err.message}`);
-      process.exit(1);
+    // No URL — show local server status
+    const { A2AConfig } = require('../src/lib/config');
+    const config = new A2AConfig();
+    const onboarding = config.getOnboarding();
+    const agent = config.getAgent();
+
+    console.log('A2A Local Status\n');
+
+    // Onboarding state
+    const onboarded = onboarding.version === 2 && onboarding.step === 'complete';
+    console.log(`  Onboarding:  ${onboarded ? '✅ Complete' : `⚠️  ${onboarding.step || 'not started'} (run: a2a quickstart)`}`);
+    console.log(`  Agent name:  ${agent.name || '(not set)'}`);
+    console.log(`  Hostname:    ${agent.hostname || '(not set)'}`);
+
+    // Check if server is running
+    const preferred = [];
+    if (onboarding.server_port) preferred.push(onboarding.server_port);
+    const port = await findLocalServerPort(preferred);
+    if (port) {
+      console.log(`  Server:      ✅ Running on port ${port}`);
+
+      // Fetch dashboard status for more detail
+      const http = require('http');
+      try {
+        const statusData = await new Promise((resolve, reject) => {
+          const req = http.request({
+            hostname: '127.0.0.1', port,
+            path: '/api/a2a/dashboard/status',
+            method: 'GET', timeout: 2000
+          }, (res) => {
+            let body = '';
+            res.on('data', c => body += c);
+            res.on('end', () => {
+              try { resolve(JSON.parse(body)); } catch (e) { reject(e); }
+            });
+          });
+          req.on('error', reject);
+          req.on('timeout', () => { req.destroy(); reject(new Error('timeout')); });
+          req.end();
+        });
+
+        if (statusData.agent) {
+          if (statusData.agent.owner_name) console.log(`  Owner:       ${statusData.agent.owner_name}`);
+        }
+        if (statusData.invite_host) {
+          console.log(`  Invite host: ${statusData.invite_host}`);
+        }
+        if (statusData.warnings && statusData.warnings.length) {
+          console.log('');
+          for (const w of statusData.warnings) {
+            console.log(`  ⚠️  ${w}`);
+          }
+        }
+      } catch (_) {
+        // Dashboard status unavailable — that's fine, we already showed port
+      }
+    } else {
+      console.log('  Server:      ❌ Not running');
+      console.log('  Start with:  a2a server --port 3001');
     }
+
+    console.log(`\n  Tip: a2a status <invite_url> to check a remote agent`);
   },
 
   config: (args) => {
@@ -2513,6 +2577,13 @@ Examples:
 
 // Main
 const args = parseArgs(process.argv);
+
+// Handle --version flag before command dispatch (standard CLI convention)
+if (args.flags.version || args.flags.v) {
+  commands.version();
+  process.exit(0);
+}
+
 const command = args._[0] || 'help';
 
 if (!commands[command]) {
