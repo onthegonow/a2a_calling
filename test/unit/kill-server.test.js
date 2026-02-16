@@ -186,4 +186,87 @@ module.exports = function (test, assert, helpers) {
 
     tmp.cleanup();
   });
+
+  test('uninstall --force reads PID file and kills the server', async () => {
+    const port = 19878;
+    const tmp = helpers.tmpConfigDir('kill-server-pidfile');
+
+    // Spawn a real server on the port
+    const pid = spawnDetachedServer(port);
+    const up = await waitForPort(port, 5000);
+    assert.ok(up, `Server should be listening on port ${port}`);
+
+    // Write PID file (what server.js now does)
+    const pidPath = path.join(tmp.dir, 'a2a-server.pid');
+    fs.writeFileSync(pidPath, String(pid) + '\n');
+
+    // Write config with NO server_pid (PID file is the primary mechanism)
+    const configPath = path.join(tmp.dir, 'a2a-config.json');
+    fs.writeFileSync(configPath, JSON.stringify({
+      onboarding: { version: 2, server_port: port }
+    }));
+
+    // Run uninstall --force
+    const res = spawnSync(process.execPath, ['bin/cli.js', 'uninstall', '--force'], {
+      env: { ...process.env, A2A_CONFIG_DIR: tmp.dir },
+      encoding: 'utf8',
+      timeout: 20000
+    });
+
+    assert.equal(res.status, 0, `Expected exit 0, got ${res.status}. stderr=${(res.stderr || '').trim()}`);
+
+    // Verify port is freed
+    const free = await isPortFree(port);
+    assert.ok(free, `Port ${port} should be free after uninstall`);
+
+    // Verify PID file is cleaned up
+    assert.ok(!fs.existsSync(pidPath), 'PID file should be removed after uninstall');
+
+    tmp.cleanup();
+  });
+
+  test('uninstall --force kills multiple tracked PIDs from config', async () => {
+    const port1 = 19879;
+    const port2 = 19880;
+    const tmp = helpers.tmpConfigDir('kill-server-multi');
+
+    // Spawn two servers on different ports
+    const pid1 = spawnDetachedServer(port1);
+    const pid2 = spawnDetachedServer(port2);
+    const up1 = await waitForPort(port1, 5000);
+    const up2 = await waitForPort(port2, 5000);
+    assert.ok(up1, `Server 1 should be listening on port ${port1}`);
+    assert.ok(up2, `Server 2 should be listening on port ${port2}`);
+
+    // Write config with server_pids array
+    const configPath = path.join(tmp.dir, 'a2a-config.json');
+    fs.writeFileSync(configPath, JSON.stringify({
+      onboarding: {
+        version: 2,
+        server_pid: pid2,
+        server_pids: [pid1, pid2],
+        server_port: port2
+      }
+    }));
+
+    const res = spawnSync(process.execPath, ['bin/cli.js', 'uninstall', '--force'], {
+      env: { ...process.env, A2A_CONFIG_DIR: tmp.dir },
+      encoding: 'utf8',
+      timeout: 20000
+    });
+
+    assert.equal(res.status, 0, `Expected exit 0, got ${res.status}`);
+
+    // Both ports should be freed
+    const free1 = await isPortFree(port1);
+    const free2 = await isPortFree(port2);
+    assert.ok(free1, `Port ${port1} should be free`);
+    assert.ok(free2, `Port ${port2} should be free`);
+
+    // Safety cleanup
+    try { process.kill(pid1, 'SIGKILL'); } catch (e) {}
+    try { process.kill(pid2, 'SIGKILL'); } catch (e) {}
+
+    tmp.cleanup();
+  });
 };

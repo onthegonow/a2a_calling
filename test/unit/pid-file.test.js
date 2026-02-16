@@ -1,0 +1,242 @@
+/**
+ * PID File Tests
+ *
+ * Covers: writePidFile, readPidFile, removePidFile, isProcessAlive, killExistingServer
+ */
+
+module.exports = function (test, assert, helpers) {
+  const fs = require('fs');
+  const path = require('path');
+  const { spawn } = require('child_process');
+
+  // Fresh require helper — pid-file reads CONFIG_DIR at require time
+  function requirePidFile(configDir) {
+    const modPath = require.resolve('../../src/lib/pid-file');
+    delete require.cache[modPath];
+    process.env.A2A_CONFIG_DIR = configDir;
+    return require('../../src/lib/pid-file');
+  }
+
+  test('writePidFile writes PID to a2a-server.pid', () => {
+    const tmp = helpers.tmpConfigDir('pid-write');
+    const pf = requirePidFile(tmp.dir);
+
+    pf.writePidFile(12345);
+
+    const pidPath = path.join(tmp.dir, 'a2a-server.pid');
+    assert.ok(fs.existsSync(pidPath), 'PID file should exist');
+    const content = fs.readFileSync(pidPath, 'utf8').trim();
+    assert.equal(content, '12345', 'PID file should contain the PID');
+
+    tmp.cleanup();
+  });
+
+  test('readPidFile returns the PID as a number', () => {
+    const tmp = helpers.tmpConfigDir('pid-read');
+    const pf = requirePidFile(tmp.dir);
+
+    fs.writeFileSync(path.join(tmp.dir, 'a2a-server.pid'), '42\n');
+    const pid = pf.readPidFile();
+    assert.equal(pid, 42, 'Should parse PID as number');
+
+    tmp.cleanup();
+  });
+
+  test('readPidFile returns null when file missing', () => {
+    const tmp = helpers.tmpConfigDir('pid-read-missing');
+    const pf = requirePidFile(tmp.dir);
+
+    const pid = pf.readPidFile();
+    assert.equal(pid, null, 'Should return null when no PID file');
+
+    tmp.cleanup();
+  });
+
+  test('readPidFile returns null for corrupt content', () => {
+    const tmp = helpers.tmpConfigDir('pid-read-corrupt');
+    const pf = requirePidFile(tmp.dir);
+
+    fs.writeFileSync(path.join(tmp.dir, 'a2a-server.pid'), 'not-a-number\n');
+    const pid = pf.readPidFile();
+    assert.equal(pid, null, 'Should return null for non-numeric content');
+
+    tmp.cleanup();
+  });
+
+  test('removePidFile deletes the file', () => {
+    const tmp = helpers.tmpConfigDir('pid-remove');
+    const pf = requirePidFile(tmp.dir);
+
+    const pidPath = path.join(tmp.dir, 'a2a-server.pid');
+    fs.writeFileSync(pidPath, '99\n');
+    pf.removePidFile();
+    assert.ok(!fs.existsSync(pidPath), 'PID file should be removed');
+
+    tmp.cleanup();
+  });
+
+  test('removePidFile is safe when file does not exist', () => {
+    const tmp = helpers.tmpConfigDir('pid-remove-noop');
+    const pf = requirePidFile(tmp.dir);
+
+    // Should not throw
+    pf.removePidFile();
+
+    tmp.cleanup();
+  });
+
+  test('isProcessAlive returns true for current process', () => {
+    const tmp = helpers.tmpConfigDir('pid-alive');
+    const pf = requirePidFile(tmp.dir);
+
+    assert.ok(pf.isProcessAlive(process.pid), 'Current process should be alive');
+
+    tmp.cleanup();
+  });
+
+  test('isProcessAlive returns false for non-existent PID', () => {
+    const tmp = helpers.tmpConfigDir('pid-dead');
+    const pf = requirePidFile(tmp.dir);
+
+    assert.ok(!pf.isProcessAlive(999999999), 'Fake PID should not be alive');
+
+    tmp.cleanup();
+  });
+
+  test('killExistingServer kills a live process from PID file', async () => {
+    const tmp = helpers.tmpConfigDir('pid-kill');
+    const pf = requirePidFile(tmp.dir);
+
+    // Spawn a detached sleep process
+    const child = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 60000)'], {
+      detached: true,
+      stdio: 'ignore'
+    });
+    child.unref();
+    const pid = child.pid;
+
+    // Write PID file
+    pf.writePidFile(pid);
+
+    // Kill it
+    const result = pf.killExistingServer();
+    assert.ok(result.killed, 'Should report killed');
+    assert.equal(result.pid, pid, 'Should report the PID');
+
+    // Verify dead
+    await new Promise(r => setTimeout(r, 200));
+    assert.ok(!pf.isProcessAlive(pid), 'Process should be dead');
+
+    tmp.cleanup();
+  });
+
+  test('killExistingServer returns no-op when no PID file', () => {
+    const tmp = helpers.tmpConfigDir('pid-kill-noop');
+    const pf = requirePidFile(tmp.dir);
+
+    const result = pf.killExistingServer();
+    assert.ok(!result.killed, 'Should not report killed');
+
+    tmp.cleanup();
+  });
+
+  test('killExistingServer returns no-op when PID is stale', () => {
+    const tmp = helpers.tmpConfigDir('pid-kill-stale');
+    const pf = requirePidFile(tmp.dir);
+
+    fs.writeFileSync(path.join(tmp.dir, 'a2a-server.pid'), '999999999\n');
+    const result = pf.killExistingServer();
+    assert.ok(!result.killed, 'Should not report killed for dead process');
+
+    // PID file should be cleaned up
+    assert.equal(pf.readPidFile(), null, 'Stale PID file should be removed');
+
+    tmp.cleanup();
+  });
+
+  test('server.js writes PID file on startup and removes on exit', async () => {
+    const tmp = helpers.tmpConfigDir('pid-server-lifecycle');
+    const pidPath = path.join(tmp.dir, 'a2a-server.pid');
+
+    // Start the real server with a random high port
+    const port = 19870 + Math.floor(Math.random() * 100);
+    const child = spawn(process.execPath, [
+      path.join(__dirname, '../../src/server.js')
+    ], {
+      env: { ...process.env, A2A_CONFIG_DIR: tmp.dir, PORT: String(port) },
+      detached: true,
+      stdio: 'ignore'
+    });
+    child.unref();
+
+    // Wait for server to start and write PID file
+    let pidWritten = false;
+    for (let i = 0; i < 30; i++) {
+      if (fs.existsSync(pidPath)) {
+        pidWritten = true;
+        break;
+      }
+      await new Promise(r => setTimeout(r, 200));
+    }
+
+    assert.ok(pidWritten, 'Server should write PID file on startup');
+    const writtenPid = parseInt(fs.readFileSync(pidPath, 'utf8').trim(), 10);
+    assert.equal(writtenPid, child.pid, 'PID file should contain server PID');
+
+    // Send SIGTERM and verify PID file is cleaned up
+    process.kill(child.pid, 'SIGTERM');
+    let pidRemoved = false;
+    for (let i = 0; i < 30; i++) {
+      if (!fs.existsSync(pidPath)) {
+        pidRemoved = true;
+        break;
+      }
+      await new Promise(r => setTimeout(r, 200));
+    }
+
+    assert.ok(pidRemoved, 'Server should remove PID file on SIGTERM');
+
+    // Cleanup: ensure process is dead
+    try { process.kill(child.pid, 'SIGKILL'); } catch (e) {}
+
+    tmp.cleanup();
+  });
+
+  test('repeated spawn-and-kill does not leak processes', async () => {
+    const tmp = helpers.tmpConfigDir('pid-no-leak');
+    const pf = requirePidFile(tmp.dir);
+    const pids = [];
+
+    // Simulate 3 quickstart runs: spawn → write PID → kill previous → spawn new
+    for (let i = 0; i < 3; i++) {
+      // Kill previous (what quickstart now does)
+      pf.killExistingServer();
+
+      // Spawn new
+      const child = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 60000)'], {
+        detached: true,
+        stdio: 'ignore'
+      });
+      child.unref();
+      pids.push(child.pid);
+      pf.writePidFile(child.pid);
+
+      await new Promise(r => setTimeout(r, 100));
+    }
+
+    // Only the LAST process should be alive
+    await new Promise(r => setTimeout(r, 300));
+    for (let i = 0; i < pids.length - 1; i++) {
+      assert.ok(!pf.isProcessAlive(pids[i]), `Process ${i} (PID ${pids[i]}) should be dead`);
+    }
+    assert.ok(pf.isProcessAlive(pids[pids.length - 1]), 'Last process should be alive');
+
+    // Cleanup
+    pf.killExistingServer();
+    for (const pid of pids) {
+      try { process.kill(pid, 'SIGKILL'); } catch (e) {}
+    }
+
+    tmp.cleanup();
+  });
+};
