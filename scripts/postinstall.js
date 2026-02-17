@@ -43,12 +43,24 @@ const result = spawnSync(process.execPath, [cliPath, 'quickstart'], {
 
 if (result.error) {
   // Don't fail the install — the agent will get onboarding when it runs `a2a`.
+  installSkillFiles();
   installMacOSApp();
   process.exit(0);
 }
 
+installSkillFiles();
 installMacOSApp();
 process.exit(result.status || 0);
+
+// Best-effort: install Claude Code + Codex skills into the workspace
+function installSkillFiles() {
+  try {
+    const { installSkills } = require('./install-skills');
+    installSkills(initCwd);
+  } catch (e) {
+    // Silent — skills can be installed later with `a2a skills`
+  }
+}
 
 // Download and install the native macOS app from GitHub Releases
 function installMacOSApp() {

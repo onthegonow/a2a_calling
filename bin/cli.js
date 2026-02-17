@@ -37,7 +37,8 @@ const ONBOARDING_EXEMPT = new Set([
   'dashboard',
   'server',
   'setup',
-  'install'
+  'install',
+  'skills'
 ]);
 
 function isOnboarded() {
@@ -710,6 +711,8 @@ const commands = {
     
     // Get objectives from disclosure
     const objectives = tierTopics.objectives || [];
+    const timeoutMsRaw = args.flags['timeout-ms'] || args.flags.timeout_ms;
+    const timeoutMs = timeoutMsRaw ? Number.parseInt(String(timeoutMsRaw), 10) : null;
 
     const { token, record } = store.create({
       name: args.flags.name || args.flags.n || 'unnamed',
@@ -720,7 +723,8 @@ const commands = {
       notify: args.flags.notify || 'all',
       maxCalls,
       allowedTopics,
-      allowedGoals: objectives.map(o => o.objective || o)
+      allowedGoals: objectives.map(o => o.objective || o),
+      timeoutMs
     });
 
     const resolvedHost = await resolveInviteHostname();
@@ -759,6 +763,7 @@ const commands = {
     console.log(`Disclosure: ${record.disclosure}`);
     console.log(`Notify: ${record.notify}`);
     console.log(`Max calls: ${record.max_calls || 'unlimited'}`);
+    if (record.timeout_ms) console.log(`Turn timeout: ${record.timeout_ms}ms`);
     if (linkContact) console.log(`Linked to: ${linkContact}`);
     console.log(`\nTo revoke: a2a revoke ${record.id}`);
     console.log(`\n${'─'.repeat(50)}`);
@@ -2625,6 +2630,46 @@ a2a add "${inviteUrl}" "${ownerText || 'friend'}" && a2a call "${ownerText || 'f
     return commands.quickstart(args);
   },
 
+  skills: (args) => {
+    const { installSkills, SKILL_FILES } = require('../scripts/install-skills');
+    const check = args.flags.check || args.flags.c;
+    const force = args.flags.force;
+    const targetDir = process.cwd();
+
+    if (check) {
+      console.log('A2A skills for this project:\n');
+      for (const file of SKILL_FILES) {
+        const destPath = path.join(targetDir, file.dest);
+        const exists = fs.existsSync(destPath);
+        const icon = exists ? '  \u2713' : '  \u2717';
+        console.log(`${icon} ${file.dest}${exists ? ' (installed)' : ' (not installed)'}`);
+      }
+      console.log(`\nRun "a2a skills" to install missing files.`);
+      return;
+    }
+
+    const result = installSkills(targetDir, { force });
+
+    if (result.installed.length) {
+      console.log(`\n  Installed ${result.installed.length} A2A skill file(s):\n`);
+      result.installed.forEach(f => console.log(`    + ${f}`));
+    }
+    if (result.skipped.length) {
+      console.log(`\n  Skipped ${result.skipped.length} unchanged file(s)`);
+    }
+    if (result.errors.length) {
+      console.error(`\n  Errors:`);
+      result.errors.forEach(e => console.error(`    ! ${e.file}: ${e.error}`));
+    }
+
+    if (result.installed.length === 0 && result.skipped.length > 0) {
+      console.log('\n  All skills already installed. Use --force to overwrite.\n');
+    } else if (result.installed.length > 0) {
+      console.log('\n  Skills ready. In Claude Code, type /a2a- to see available commands.');
+      console.log('  In Codex CLI, A2A instructions are in .codex/AGENTS.md\n');
+    }
+  },
+
   version: () => {
     const pkg = require('../package.json');
     console.log(pkg.version);
@@ -2645,6 +2690,7 @@ Commands:
     --disclosure, -d  Disclosure level (public, minimal, none)
     --notify          Owner notification (all, summary, none)
     --max-calls       Maximum invocations (default: 100)
+    --timeout-ms      Per-token Claude turn timeout in milliseconds
     --link, -l        Auto-link to contact name
 
   list                List active tokens
@@ -2710,6 +2756,9 @@ Server:
   uninstall           Stop server and remove local config/DB
     --keep-config     Preserve config/DB (for reinstall)
     --force           Skip confirmation prompt
+  skills              Install Claude Code + Codex CLI skills
+    --check, -c       Show what would be installed
+    --force           Overwrite existing files
   version             Show installed package version
 
 Examples:

@@ -388,6 +388,48 @@ module.exports = function (test, assert, helpers) {
 };
 ```
 
+## CLI Skills (Claude Code & Codex)
+
+A2A ships with slash commands for Claude Code and agent instructions for Codex CLI.
+
+### Installation
+
+```bash
+a2a skills              # Install into current project
+a2a skills --check      # See what would be installed
+a2a skills --force      # Overwrite existing files
+```
+
+Skills are also installed automatically on `npm install -g a2acalling`.
+
+### Claude Code Commands
+
+| Command | Description |
+|---------|-------------|
+| `/a2a-call <contact> <msg>` | Call another agent (multi-turn) |
+| `/a2a-invite [name] [--tier]` | Create invite token |
+| `/a2a-contacts [add\|show\|ping\|rm]` | Manage contacts |
+| `/a2a-status` | Server and agent health dashboard |
+| `/a2a-setup` | First-time setup and onboarding |
+
+Files installed to: `.claude/commands/a2a-*.md`
+
+### Codex CLI
+
+A2A agent instructions are installed to `.codex/AGENTS.md`. Codex reads this file automatically to understand available A2A commands, permission tiers, and workflows.
+
+### Manual Installation
+
+If the automatic install didn't work, copy the files manually:
+
+```bash
+# Claude Code commands
+cp node_modules/a2acalling/.claude/commands/a2a-*.md .claude/commands/
+
+# Codex instructions
+cp node_modules/a2acalling/.codex/AGENTS.md .codex/AGENTS.md
+```
+
 ## Future Protocol Extensions (v1+)
 
 - **Capability advertisement**: Agents declare what they can help with
