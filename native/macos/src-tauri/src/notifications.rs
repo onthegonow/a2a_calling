@@ -75,7 +75,7 @@ fn process_dashboard_event(app: &tauri::AppHandle, raw: &str) {
 
 /// Connect to server-driven dashboard SSE and map events to native notifications.
 pub fn start_event_stream_listener(app: tauri::AppHandle) {
-    tokio::spawn(async move {
+    tauri::async_runtime::spawn(async move {
         // Wait for initial discovery attempt.
         tokio::time::sleep(Duration::from_secs(2)).await;
 

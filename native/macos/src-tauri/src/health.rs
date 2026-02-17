@@ -1,5 +1,4 @@
 use std::sync::atomic::{AtomicBool, AtomicU16, Ordering};
-use std::sync::Arc;
 use std::time::Duration;
 use tauri::{Emitter, Manager};
 
@@ -21,8 +20,8 @@ pub fn set_connected(port: u16) {
 
 /// Start background health check loop — emits "server-status" events
 pub fn start_health_monitor(app: tauri::AppHandle) {
-    let handle = Arc::new(app);
-    tokio::spawn(async move {
+    tauri::async_runtime::spawn(async move {
+        let handle = app;
         loop {
             tokio::time::sleep(Duration::from_secs(3)).await;
 
