@@ -110,8 +110,8 @@ pub fn run() {
             // Start background health monitor
             health::start_health_monitor(app.handle().clone());
 
-            // Start notification poller
-            notifications::start_notification_poller(app.handle().clone());
+            // Start server-driven event listener for native notifications.
+            notifications::start_event_stream_listener(app.handle().clone());
 
             // Menu bar tray icon
             let show = MenuItem::with_id(app, "show", "Show A2A Callbook", true, None::<&str>)?;

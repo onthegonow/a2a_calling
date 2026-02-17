@@ -71,7 +71,7 @@
         Server not running
       </p>
       <p class="port-info" id="last-port">No a2a server found on common ports</p>
-      <button id="btn-start">Start Server</button>
+      <button id="btn-start">How to start server</button>
       <button id="btn-retry" class="secondary">Retry</button>
       <p id="error-detail"></p>
     </div>
@@ -120,15 +120,10 @@
     }
 
     document.getElementById('btn-start')?.addEventListener('click', async () => {
-      try {
-        await invoke('start_server');
-        // Wait for server to boot, then retry
-        setTimeout(checkServer, 2000);
-      } catch (err) {
-        const detail = document.getElementById('error-detail');
-        detail.textContent = `Failed to start: ${err}`;
-        detail.style.display = 'block';
-      }
+      const detail = document.getElementById('error-detail');
+      // v1 design decision: app links/status only; no app-owned server lifecycle management yet.
+      detail.textContent = 'Run `a2a server` (or `a2a quickstart`) in Terminal, then click Retry.';
+      detail.style.display = 'block';
     });
 
     document.getElementById('btn-retry')?.addEventListener('click', checkServer);

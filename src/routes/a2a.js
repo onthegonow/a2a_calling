@@ -15,11 +15,14 @@ const { createLogger, createTraceId } = require('../lib/logger');
 // Lazy-load conversation store (optional dependency)
 let ConversationStore = null;
 let conversationStore = null;
-function getConversationStore() {
+function getConversationStore(options = {}) {
   if (!ConversationStore) {
     try {
       ConversationStore = require('../lib/conversations').ConversationStore;
-      conversationStore = new ConversationStore();
+      const configDir = options.configDir || undefined;
+      conversationStore = new ConversationStore(configDir, {
+        eventStore: options.eventStore || null
+      });
       if (!conversationStore.isAvailable()) {
         conversationStore = null;
       }
@@ -162,9 +165,13 @@ function createRoutes(options = {}) {
   const notifyOwner = options.notifyOwner || (() => Promise.resolve());
   const limits = options.rateLimits || { minute: 10, hour: 100, day: 1000 };
   const logger = options.logger || createLogger({ component: 'a2a.routes' });
+  const eventStore = options.eventStore || null;
 
   // Initialize conversation store and call monitor
-  const convStore = getConversationStore();
+  const convStore = getConversationStore({
+    eventStore,
+    configDir: tokenStore.configDir
+  });
   const monitor = getCallMonitor({
     convStore,
     summarizer: options.summarizer,
@@ -367,6 +374,17 @@ function createRoutes(options = {}) {
           tokenId: validation.id,
           direction: 'inbound'
         });
+        if (isNewConversation && eventStore && eventStore.isAvailable && eventStore.isAvailable()) {
+          eventStore.emitEvent('call.inbound', {
+            conversation_id: a2aContext.conversation_id,
+            token_id: validation.id,
+            caller_name: sanitizedCaller.name || validation.name || null,
+            caller_owner: sanitizedCaller.owner || null
+          }, {
+            conversationId: a2aContext.conversation_id,
+            contactId: ensuredContact?.id || validation.id
+          });
+        }
         
         // Track activity for auto-conclude
         if (monitor) {
@@ -563,7 +581,10 @@ function createRoutes(options = {}) {
       }));
     }
 
-    const convStore = getConversationStore();
+    const convStore = getConversationStore({
+      eventStore,
+      configDir: tokenStore.configDir
+    });
     if (!convStore) {
       return res.json(withTracePayload({ success: true, message: 'Conversation storage not enabled' }));
     }

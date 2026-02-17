@@ -18,6 +18,7 @@ const { A2AConfig } = require('../lib/config');
 const { loadManifest, saveManifest } = require('../lib/disclosure');
 const { resolveInviteHost } = require('../lib/invite-host');
 const { CallbookStore } = require('../lib/callbook');
+const { DashboardEventStore } = require('../lib/dashboard-events');
 const { createLogger } = require('../lib/logger');
 
 const DASHBOARD_STATIC_DIR = path.join(__dirname, '..', 'dashboard', 'public');
@@ -192,11 +193,12 @@ function buildContext(options = {}) {
   const config = options.config || new A2AConfig();
   const logger = options.logger || createLogger({ component: 'a2a.dashboard' });
   const callbookStore = options.callbookStore || new CallbookStore(tokenStore.configDir);
+  const eventStore = options.eventStore || new DashboardEventStore(tokenStore.configDir);
   const agentContext = resolveAgentContext(options);
   let convStore = options.convStore || null;
   if (!convStore) {
     try {
-      convStore = new ConversationStore();
+      convStore = new ConversationStore(tokenStore.configDir, { eventStore });
       if (!convStore.isAvailable()) {
         convStore = null;
       }
@@ -210,6 +212,7 @@ function buildContext(options = {}) {
     config,
     convStore,
     callbookStore,
+    eventStore,
     getUpdateManager: typeof options.getUpdateManager === 'function'
       ? options.getUpdateManager
       : (() => null),
@@ -444,6 +447,23 @@ function createDashboardApiRouter(options = {}) {
   const context = buildContext(options);
   router.use(express.json());
   const ensureDashboardAccess = makeEnsureDashboardAccess(context);
+  const writeSseEvent = (res, event) => {
+    const eventName = sanitizeString(event?.type || 'message', 80) || 'message';
+    const eventId = Number.parseInt(String(event?.id || ''), 10);
+    const payload = {
+      id: eventId || null,
+      type: eventName,
+      created_at: event?.created_at || new Date().toISOString(),
+      conversation_id: event?.conversation_id || null,
+      contact_id: event?.contact_id || null,
+      payload: event?.payload || {}
+    };
+    if (Number.isFinite(eventId) && eventId > 0) {
+      res.write(`id: ${eventId}\n`);
+    }
+    res.write(`event: ${eventName}\n`);
+    res.write(`data: ${JSON.stringify(payload)}\n\n`);
+  };
 
   // Callbook Remote: exchange a short-lived provisioning code for a long-lived session cookie.
   // This route must be reachable BEFORE dashboard access is established.
@@ -481,6 +501,14 @@ function createDashboardApiRouter(options = {}) {
     });
     res.setHeader('Set-Cookie', cookie);
 
+    if (context.eventStore && context.eventStore.isAvailable()) {
+      context.eventStore.emitEvent('invite.used', {
+        device_id: result.device?.id || null,
+        device_label: result.device?.label || null,
+        source: 'callbook_exchange'
+      });
+    }
+
     return res.json({
       success: true,
       device: result.device,
@@ -490,6 +518,72 @@ function createDashboardApiRouter(options = {}) {
 
   // All other dashboard API routes require owner access.
   router.use(ensureDashboardAccess);
+
+  router.get('/events', (req, res) => {
+    if (!context.eventStore || !context.eventStore.isAvailable()) {
+      return res.status(503).json({
+        success: false,
+        error: 'event_stream_unavailable',
+        message: context.eventStore ? context.eventStore.getDbError() : 'missing_event_store'
+      });
+    }
+
+    const lastIdHeader = req.headers['last-event-id'];
+    const since = sanitizeString(
+      req.query.since || lastIdHeader || req.query.last_event_id || '',
+      32
+    );
+    const replayLimit = Math.min(500, Math.max(1, Number.parseInt(req.query.replay || '200', 10) || 200));
+
+    res.status(200);
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache, no-transform');
+    res.setHeader('Connection', 'keep-alive');
+    res.flushHeaders?.();
+
+    let lastSentId = Number.parseInt(String(since || '0'), 10);
+    if (!Number.isFinite(lastSentId) || lastSentId < 0) {
+      lastSentId = 0;
+    }
+
+    const pendingLive = [];
+    const unsubscribe = context.eventStore.subscribe((event) => {
+      if (!event || !Number.isFinite(event.id)) return;
+      if (event.id <= lastSentId) return;
+      pendingLive.push(event);
+    });
+
+    const replay = context.eventStore.listSince(since, { limit: replayLimit });
+    for (const row of replay) {
+      writeSseEvent(res, row);
+      if (Number.isFinite(row.id) && row.id > lastSentId) {
+        lastSentId = row.id;
+      }
+    }
+    while (pendingLive.length > 0) {
+      const row = pendingLive.shift();
+      if (!row || !Number.isFinite(row.id) || row.id <= lastSentId) continue;
+      writeSseEvent(res, row);
+      lastSentId = row.id;
+    }
+    res.write(': connected\n\n');
+
+    const liveUnsubscribe = context.eventStore.subscribe((event) => {
+      if (!event || !Number.isFinite(event.id) || event.id <= lastSentId) return;
+      writeSseEvent(res, event);
+      lastSentId = event.id;
+    });
+    const heartbeat = setInterval(() => {
+      res.write(`: heartbeat ${Date.now()}\n\n`);
+    }, 15000);
+
+    req.on('close', () => {
+      clearInterval(heartbeat);
+      unsubscribe();
+      liveUnsubscribe();
+      res.end();
+    });
+  });
 
   router.get('/status', async (req, res) => {
     context.logger.debug('Dashboard status requested', { event: 'dashboard_status' });
@@ -1028,7 +1122,16 @@ function createDashboardApiRouter(options = {}) {
     const url = `a2a://${contact.host}/${contact.token}`;
     try {
       const result = await client.call(url, message, { conversationId, timeoutSeconds });
+      const previousStatus = String(contact.status || '');
       context.tokenStore.updateContactStatus(contact.id, 'online');
+      if (context.eventStore && context.eventStore.isAvailable() && previousStatus !== 'online') {
+        context.eventStore.emitEvent('contact.status.changed', {
+          contact_id: contact.id,
+          contact_name: contact.name || contact.host || null,
+          previous_status: previousStatus || null,
+          status: 'online'
+        }, { contactId: contact.id });
+      }
 
       if (context.convStore) {
         try {
@@ -1053,7 +1156,17 @@ function createDashboardApiRouter(options = {}) {
         can_continue: result?.can_continue !== false
       });
     } catch (err) {
+      const previousStatus = String(contact.status || '');
       context.tokenStore.updateContactStatus(contact.id, 'offline', err.message);
+      if (context.eventStore && context.eventStore.isAvailable() && previousStatus !== 'offline') {
+        context.eventStore.emitEvent('contact.status.changed', {
+          contact_id: contact.id,
+          contact_name: contact.name || contact.host || null,
+          previous_status: previousStatus || null,
+          status: 'offline',
+          reason: err.message || null
+        }, { contactId: contact.id });
+      }
       return res.status(502).json({
         success: false,
         error: 'contact_call_failed',

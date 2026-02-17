@@ -26,6 +26,7 @@ const { writePidFile, removePidFile } = require('./lib/pid-file');
 const { buildUnifiedSummaryPrompt } = require('./lib/summary-prompt');
 const { A2AConfig } = require('./lib/config');
 const { UpdateManager } = require('./lib/update-manager');
+const { DashboardEventStore } = require('./lib/dashboard-events');
 const { spawn } = require('child_process');
 const { resolveTurnTimeoutMs } = require('./lib/turn-timeout');
 
@@ -67,6 +68,7 @@ function loadAgentContext() {
 const agentContext = loadAgentContext();
 const tokenStore = new TokenStore();
 const config = new A2AConfig();
+const eventStore = new DashboardEventStore(tokenStore.configDir);
 const runtime = createRuntimeAdapter({
   workspaceDir,
   agentContext,
@@ -833,6 +835,7 @@ app.use('/api/a2a/dashboard', createDashboardApiRouter({
   tokenStore,
   agentContext,
   config,
+  eventStore,
   getUpdateManager: () => updateManager,
   logger: logger.child({ component: 'a2a.dashboard' })
 }));
@@ -858,6 +861,7 @@ app.use('/callbook', createCallbookRouter());
 
 app.use('/api/a2a', createRoutes({
   tokenStore,
+  eventStore,
   logger: logger.child({ component: 'a2a.routes' }),
   onCallMonitor: (monitor) => {
     activeCallMonitor = monitor;

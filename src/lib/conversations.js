@@ -18,9 +18,10 @@ const DB_FILENAME = 'a2a-conversations.db';
 const logger = createLogger({ component: 'a2a.conversations' });
 
 class ConversationStore {
-  constructor(configDir = DEFAULT_CONFIG_DIR) {
+  constructor(configDir = DEFAULT_CONFIG_DIR, options = {}) {
     this.configDir = configDir;
     this.dbPath = path.join(configDir, DB_FILENAME);
+    this.eventStore = options.eventStore || null;
     this.db = null;
     this._ensureDir();
   }
@@ -253,6 +254,19 @@ class ConversationStore {
       VALUES (?, ?, ?, ?, ?, ?, ?, 'active')
     `).run(id, contactId, contactName, tokenId, direction, now, now);
 
+    if (this.eventStore && this.eventStore.isAvailable && this.eventStore.isAvailable()) {
+      this.eventStore.emitEvent('call.updated', {
+        conversation_id: id,
+        status: 'active',
+        direction,
+        contact_id: contactId || null,
+        contact_name: contactName || null
+      }, {
+        conversationId: id,
+        contactId: contactId || null
+      });
+    }
+
     return { id, resumed: false };
   }
 
@@ -283,6 +297,14 @@ class ConversationStore {
       SET last_message_at = ?, message_count = message_count + 1
       WHERE id = ?
     `).run(now, conversationId);
+
+    if (this.eventStore && this.eventStore.isAvailable && this.eventStore.isAvailable()) {
+      this.eventStore.emitEvent('call.updated', {
+        conversation_id: conversationId,
+        status: 'active',
+        direction
+      }, { conversationId });
+    }
 
     return { id, timestamp: now };
   }
@@ -450,6 +472,31 @@ class ConversationStore {
       `).run(now, conversationId);
     }
 
+    if (this.eventStore && this.eventStore.isAvailable && this.eventStore.isAvailable()) {
+      this.eventStore.emitEvent('call.updated', {
+        conversation_id: conversationId,
+        status: 'concluded',
+        contact_id: conversation.contact_id || null,
+        contact_name: conversation.contact_name || null
+      }, {
+        conversationId,
+        contactId: conversation.contact_id || null
+      });
+
+      if (summary || ownerSummary) {
+        this.eventStore.emitEvent('summary.completed', {
+          conversation_id: conversationId,
+          contact_id: conversation.contact_id || null,
+          contact_name: conversation.contact_name || null,
+          has_summary: Boolean(summary),
+          has_owner_summary: Boolean(ownerSummary)
+        }, {
+          conversationId,
+          contactId: conversation.contact_id || null
+        });
+      }
+    }
+
     return { 
       success: true, 
       conversationId,
@@ -471,6 +518,13 @@ class ConversationStore {
       UPDATE conversations SET ended_at = ?, status = 'timeout'
       WHERE id = ?
     `).run(now, conversationId);
+
+    if (this.eventStore && this.eventStore.isAvailable && this.eventStore.isAvailable()) {
+      this.eventStore.emitEvent('call.updated', {
+        conversation_id: conversationId,
+        status: 'timeout'
+      }, { conversationId });
+    }
 
     return { success: true };
   }

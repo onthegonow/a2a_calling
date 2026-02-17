@@ -11,8 +11,16 @@ const state = {
   invites: [],
   logs: [],
   logStats: null,
-  trace: null
+  trace: null,
+  realtime: {
+    connected: false,
+    lastEventId: null
+  }
 };
+
+let dashboardEventSource = null;
+let reconnectTimer = null;
+let refreshTimer = null;
 
 function showNotice(message) {
   const el = document.getElementById('notice');
@@ -22,6 +30,143 @@ function showNotice(message) {
     el.style.display = 'none';
   }, 3500);
 }
+
+function scheduleRealtimeRefresh() {
+  clearTimeout(refreshTimer);
+  refreshTimer = setTimeout(() => {
+    Promise.all([
+      loadContacts().catch(() => {}),
+      loadCalls().catch(() => {})
+    ]).catch(() => {});
+  }, 250);
+}
+
+function notifyRealtime(title, body) {
+  const safeTitle = String(title || '').trim();
+  if (!safeTitle) return;
+  const safeBody = String(body || '').trim();
+  if (typeof window.Notification === 'undefined') return;
+  if (Notification.permission === 'granted') {
+    try {
+      // In A2A.app WebView this maps to native macOS notifications.
+      new Notification(safeTitle, safeBody ? { body: safeBody } : undefined);
+    } catch (err) {
+      // Ignore notification errors.
+    }
+    return;
+  }
+  if (Notification.permission !== 'denied') {
+    Notification.requestPermission().catch(() => {});
+  }
+}
+
+function handleRealtimeEvent(eventData) {
+  const type = String(eventData?.type || '').trim();
+  const payload = eventData?.payload || {};
+  if (!type) return;
+
+  if (type === 'call.inbound') {
+    const caller = payload.caller_name || 'Unknown agent';
+    showNotice(`Inbound call: ${caller}`);
+    notifyRealtime(`Inbound call from ${caller}`, 'Open A2A Callbook to respond.');
+    scheduleRealtimeRefresh();
+    return;
+  }
+
+  if (type === 'summary.completed') {
+    const contact = payload.contact_name || 'conversation';
+    showNotice(`Summary complete: ${contact}`);
+    notifyRealtime('Summary complete', `Conversation with ${contact} has a summary.`);
+    scheduleRealtimeRefresh();
+    return;
+  }
+
+  if (type === 'contact.status.changed') {
+    const contactId = String(payload.contact_id || '');
+    const status = String(payload.status || '');
+    if (contactId && status) {
+      state.contacts = (state.contacts || []).map((contact) => {
+        if (String(contact.id) !== contactId) return contact;
+        return { ...contact, status };
+      });
+      renderContacts();
+      renderContactDetail();
+    } else {
+      scheduleRealtimeRefresh();
+    }
+    return;
+  }
+
+  if (type === 'invite.used') {
+    showNotice('Callbook install link used');
+    loadCallbookDevices().catch(() => {});
+    return;
+  }
+
+  if (type === 'call.updated') {
+    scheduleRealtimeRefresh();
+    return;
+  }
+}
+
+function connectRealtimeEvents() {
+  clearTimeout(reconnectTimer);
+  if (dashboardEventSource) {
+    dashboardEventSource.close();
+    dashboardEventSource = null;
+  }
+
+  const qs = new URLSearchParams();
+  if (state.realtime.lastEventId) {
+    qs.set('since', String(state.realtime.lastEventId));
+  }
+  const endpoint = `/api/a2a/dashboard/events${qs.toString() ? `?${qs.toString()}` : ''}`;
+  const source = new EventSource(endpoint);
+  dashboardEventSource = source;
+
+  source.onopen = () => {
+    state.realtime.connected = true;
+  };
+
+  source.onerror = () => {
+    state.realtime.connected = false;
+    if (dashboardEventSource === source) {
+      dashboardEventSource.close();
+      dashboardEventSource = null;
+    }
+    reconnectTimer = setTimeout(connectRealtimeEvents, 1500);
+  };
+
+  const onAnyEvent = (evt) => {
+    let payload = null;
+    try {
+      payload = evt?.data ? JSON.parse(evt.data) : null;
+    } catch (_) {
+      payload = null;
+    }
+    if (!payload || typeof payload !== 'object') return;
+    if (payload.id) {
+      state.realtime.lastEventId = String(payload.id);
+    } else if (evt?.lastEventId) {
+      state.realtime.lastEventId = String(evt.lastEventId);
+    }
+    handleRealtimeEvent(payload);
+  };
+
+  source.onmessage = onAnyEvent;
+  source.addEventListener('call.inbound', onAnyEvent);
+  source.addEventListener('call.updated', onAnyEvent);
+  source.addEventListener('summary.completed', onAnyEvent);
+  source.addEventListener('invite.used', onAnyEvent);
+  source.addEventListener('contact.status.changed', onAnyEvent);
+}
+
+window.addEventListener('beforeunload', () => {
+  if (dashboardEventSource) {
+    dashboardEventSource.close();
+    dashboardEventSource = null;
+  }
+});
 
 async function request(path, options = {}) {
   const res = await fetch(`/api/a2a/dashboard${path}`, {
@@ -1365,6 +1510,7 @@ async function bootstrap() {
       loadLogs()
     ]);
     showNotice('Dashboard loaded');
+    connectRealtimeEvents();
 
     setInterval(() => {
       loadAutoUpdateStatus().catch(() => {});

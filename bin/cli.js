@@ -11,6 +11,7 @@
  *   a2a call <url> <msg>     Call a contact (or invite URL)
  *   a2a ping <url>           Ping an invite URL
  *   a2a gui                  Open the local dashboard GUI in a browser
+ *   a2a app <action>         Manage native macOS app (status/install/uninstall)
  *   a2a setup                Auto setup (gateway-aware dashboard install)
  *   a2a uninstall            Stop server and remove local A2A config
  */
@@ -37,6 +38,7 @@ const ONBOARDING_EXEMPT = new Set([
   'dashboard',
   'server',
   'setup',
+  'app',
   'install',
   'skills'
 ]);
@@ -166,6 +168,100 @@ function findNativeApp() {
   }
 
   return null;
+}
+
+function getNativeAppPaths() {
+  return {
+    appDir: path.join(os.homedir(), 'Applications'),
+    appPath: path.join(os.homedir(), 'Applications', 'A2A Callbook.app')
+  };
+}
+
+function parseInstalledNativeAppVersion(appPath) {
+  if (!appPath) return null;
+  const plistPath = path.join(appPath, 'Contents', 'Info.plist');
+  if (!fs.existsSync(plistPath)) return null;
+  try {
+    const plist = fs.readFileSync(plistPath, 'utf8');
+    const m = plist.match(/<key>CFBundleShortVersionString<\/key>\s*<string>([^<]+)<\/string>/);
+    return m && m[1] ? m[1].trim() : null;
+  } catch (_) {
+    return null;
+  }
+}
+
+function installNativeMacApp(options = {}) {
+  if (os.platform() !== 'darwin') {
+    return { success: false, skipped: 'not_macos' };
+  }
+  const quiet = Boolean(options.quiet);
+  const force = Boolean(options.force);
+  const version = require('../package.json').version;
+  const { appDir, appPath } = getNativeAppPaths();
+  const installedVersion = parseInstalledNativeAppVersion(appPath);
+  if (!force && installedVersion === version) {
+    return { success: true, installed: false, version, appPath, reason: 'already_current' };
+  }
+
+  const tarUrl = `https://github.com/onthegonow/a2a_calling/releases/download/v${version}/A2A-Callbook-${version}.app.tar.gz`;
+  const tmpFile = path.join(os.tmpdir(), `a2a-callbook-${version}.app.tar.gz`);
+  const { execFileSync } = require('child_process');
+
+  try {
+    fs.mkdirSync(appDir, { recursive: true });
+    execFileSync('curl', ['-fL', '-o', tmpFile, tarUrl], { timeout: 120000, stdio: quiet ? 'ignore' : 'inherit' });
+    if (!fs.existsSync(tmpFile) || fs.statSync(tmpFile).size < 1000) {
+      return { success: false, error: 'download_failed' };
+    }
+    if (fs.existsSync(appPath)) {
+      fs.rmSync(appPath, { recursive: true, force: true });
+    }
+    execFileSync('tar', ['-xzf', tmpFile, '-C', appDir], { timeout: 60000, stdio: quiet ? 'ignore' : 'inherit' });
+    try { fs.unlinkSync(tmpFile); } catch (_) {}
+    return { success: true, installed: true, version, appPath };
+  } catch (err) {
+    try { fs.unlinkSync(tmpFile); } catch (_) {}
+    return { success: false, error: err.message || 'install_failed' };
+  }
+}
+
+function uninstallNativeMacApp() {
+  if (os.platform() !== 'darwin') {
+    return { success: false, skipped: 'not_macos' };
+  }
+  const candidates = [
+    path.join(os.homedir(), 'Applications', 'A2A Callbook.app'),
+    '/Applications/A2A Callbook.app'
+  ];
+  const existing = candidates.filter((candidate) => {
+    try {
+      return fs.existsSync(candidate);
+    } catch (_) {
+      return false;
+    }
+  });
+  if (existing.length === 0) {
+    return { success: true, removed: false, appPath: candidates[0] };
+  }
+
+  const removed = [];
+  const failed = [];
+  for (const appPath of existing) {
+    try {
+      fs.rmSync(appPath, { recursive: true, force: true });
+      removed.push(appPath);
+    } catch (err) {
+      failed.push({ appPath, error: err && err.message ? err.message : 'uninstall_failed' });
+    }
+  }
+  if (failed.length > 0) {
+    return {
+      success: false,
+      error: failed.map((f) => `${f.appPath}: ${f.error}`).join('; '),
+      appPath: removed[0] || existing[0]
+    };
+  }
+  return { success: true, removed: true, appPath: removed[0] || existing[0] };
 }
 
 async function findLocalServerPort(preferredPorts = []) {
@@ -2159,6 +2255,74 @@ a2a add "${inviteUrl}" "${ownerText || 'friend'}" && a2a call "${ownerText || 'f
     require('../scripts/install-openclaw.js');
   },
 
+  app: (args) => {
+    const action = String(args._[1] || 'status').trim().toLowerCase();
+    const force = Boolean(args.flags.force || args.flags.f);
+    const quiet = Boolean(args.flags.quiet || args.flags.q);
+    const pkgVersion = require('../package.json').version;
+
+    if (action === 'status') {
+      const installedAppPath = findNativeApp();
+      const preferredPath = getNativeAppPaths().appPath;
+      const version = installedAppPath ? parseInstalledNativeAppVersion(installedAppPath) : null;
+      console.log('A2A Native App Status\n');
+      console.log(`  Platform:      ${os.platform()}`);
+      console.log(`  CLI version:   ${pkgVersion}`);
+      if (os.platform() !== 'darwin') {
+        console.log('  Native app:    Not supported on this platform');
+        return;
+      }
+      console.log(`  Installed:     ${installedAppPath ? 'yes' : 'no'}`);
+      console.log(`  App path:      ${installedAppPath || preferredPath}`);
+      console.log(`  App version:   ${version || '(unknown)'}`);
+      if (!installedAppPath) {
+        console.log('\nInstall with: a2a app install');
+      }
+      return;
+    }
+
+    if (action === 'install') {
+      const result = installNativeMacApp({ force, quiet });
+      if (result.skipped === 'not_macos') {
+        console.error('Native app install is only available on macOS.');
+        process.exit(1);
+      }
+      if (!result.success) {
+        console.error(`Native app install failed: ${result.error || 'unknown error'}`);
+        process.exit(1);
+      }
+      if (result.reason === 'already_current') {
+        console.log(`Native app already installed at current version (${result.version}).`);
+        console.log(`Path: ${result.appPath}`);
+        return;
+      }
+      console.log(`Native app installed (v${result.version}).`);
+      console.log(`Path: ${result.appPath}`);
+      return;
+    }
+
+    if (action === 'uninstall') {
+      const result = uninstallNativeMacApp();
+      if (result.skipped === 'not_macos') {
+        console.error('Native app uninstall is only available on macOS.');
+        process.exit(1);
+      }
+      if (!result.success) {
+        console.error(`Native app uninstall failed: ${result.error || 'unknown error'}`);
+        process.exit(1);
+      }
+      if (!result.removed) {
+        console.log('Native app is not installed.');
+        return;
+      }
+      console.log(`Native app removed: ${result.appPath}`);
+      return;
+    }
+
+    console.error('Usage: a2a app <status|install|uninstall> [--force] [--quiet]');
+    process.exit(1);
+  },
+
   uninstall: async (args) => {
     const fs = require('fs');
     const path = require('path');
@@ -2737,6 +2901,12 @@ Calling:
   status <url>        Get A2A status
   gui                 Open the local dashboard GUI in a browser
     --tab, -t         Optional: contacts|calls|logs|settings|invites
+  app                 Manage native macOS app
+    status            Show native app installation status (default)
+    install           Install/update native app from GitHub release
+      --force, -f     Reinstall even when current version is present
+      --quiet, -q     Suppress download/extract output
+    uninstall         Remove native app from ~/Applications
 
 Server:
   server              Start the A2A server
@@ -2773,6 +2943,8 @@ Examples:
   a2a contacts link Alice tok_abc123
   a2a call Alice "Hello!"
   a2a conversations show conv_abc123
+  a2a app status
+  a2a app install --force
   a2a server --port 3001
 `);
   }
