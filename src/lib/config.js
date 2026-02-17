@@ -233,6 +233,14 @@ const DEFAULT_CONFIG = {
     description: '',
     hostname: ''
   },
+
+  // Auto-updater
+  auto_update: {
+    enabled: true,
+    intervalMs: 60 * 60 * 1000,
+    allowMajor: false,
+    lastGoodVersion: null
+  },
   
   // Timestamps
   createdAt: null,
@@ -379,6 +387,39 @@ class A2AConfig {
   // Get full config
   getAll() {
     return this.config;
+  }
+
+  getAutoUpdate() {
+    const current = (this.config && typeof this.config.auto_update === 'object' && this.config.auto_update)
+      ? this.config.auto_update
+      : {};
+    return {
+      enabled: current.enabled !== false,
+      intervalMs: Number.isFinite(current.intervalMs) && current.intervalMs > 0
+        ? current.intervalMs
+        : DEFAULT_CONFIG.auto_update.intervalMs,
+      allowMajor: Boolean(current.allowMajor),
+      lastGoodVersion: current.lastGoodVersion || null
+    };
+  }
+
+  setAutoUpdate(patch = {}) {
+    const current = this.getAutoUpdate();
+    const next = { ...current };
+    if (patch.enabled !== undefined) next.enabled = Boolean(patch.enabled);
+    if (patch.intervalMs !== undefined) {
+      const parsed = Number.parseInt(String(patch.intervalMs), 10);
+      if (Number.isFinite(parsed) && parsed > 0) {
+        next.intervalMs = parsed;
+      }
+    }
+    if (patch.allowMajor !== undefined) next.allowMajor = Boolean(patch.allowMajor);
+    if (patch.lastGoodVersion !== undefined) {
+      next.lastGoodVersion = patch.lastGoodVersion ? String(patch.lastGoodVersion).trim() : null;
+    }
+    this.config.auto_update = next;
+    this._save();
+    return next;
   }
 
   // Export for sharing

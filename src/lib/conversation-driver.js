@@ -21,6 +21,7 @@ const {
 } = require('./prompt-template');
 const { getTopicsForTier, formatTopicsForPrompt, loadManifest } = require('./disclosure');
 const { createLogger } = require('./logger');
+const { buildUnifiedSummaryPrompt } = require('./summary-prompt');
 
 const logger = createLogger({ component: 'a2a.conversation-driver' });
 
@@ -143,37 +144,75 @@ class ConversationDriver {
   _buildSummarizer() {
     const runtime = this.runtime;
     const agentContext = this.agentContext;
+    const caller = this.caller;
+    const tier = this.tier;
 
     return async (messages, ownerContext) => {
       if (!messages || messages.length === 0) {
         return { summary: null };
       }
 
-      // Build the summary prompt (same structure as server.js generateSummary)
-      const messageText = messages.map(m => {
-        const role = m.direction === 'inbound' ? '[Them]' : '[You]';
-        return `${role}: ${m.content}`;
-      }).join('\n');
+      // Build transcript in unified format
+      const transcript = messages.map(m => ({
+        direction: m.direction,
+        content: m.content
+      }));
 
-      const prompt = `Summarize this A2A call for the owner. Write from the owner's perspective.
+      // Load disclosure manifest for the tier
+      let disclosure = null;
+      try {
+        const tierTopics = getTopicsForTier(tier);
+        if (tierTopics) {
+          disclosure = {
+            topics: tierTopics.topics || [],
+            objectives: tierTopics.objectives || [],
+            doNotDiscuss: tierTopics.do_not_discuss || [],
+            neverDisclose: tierTopics.never_disclose || []
+          };
+        }
+      } catch (e) {
+        // Disclosure is optional — continue without it
+      }
 
-You initiated this call.
+      // Look up collaboration state from convStore if available
+      let collaborationState = null;
+      if (this.convStore) {
+        try {
+          const dbState = this.convStore.loadCollabState(this.lastConversationId || '');
+          if (dbState) {
+            collaborationState = {
+              phase: dbState.phase,
+              overlapScore: dbState.overlapScore,
+              turnCount: dbState.turnCount,
+              activeThreads: dbState.activeThreads,
+              candidateCollaborations: dbState.candidateCollaborations,
+              closeSignal: dbState.closeSignal
+            };
+          }
+        } catch (e) {
+          // Best effort
+        }
+      }
 
-Conversation:
-${messageText}
+      // Map ownerContext into unified format
+      const unifiedOwnerContext = {
+        agentName: agentContext.name,
+        ownerName: agentContext.owner,
+        goals: ownerContext?.goals || []
+      };
 
-Structure your summary with these sections:
-
-**Who:** Who you called, who they represent, key facts about them.
-**Key Discoveries:** What was learned about the other side — capabilities, interests, blind spots.
-**Collaboration Potential:** Rate HIGH/MEDIUM/LOW. List specific opportunities identified.
-**What We Learned vs Shared:** Brief information exchange audit — what did we get, what did we give.
-**Recommended Follow-Up:**
-- [ ] Actionable item 1
-- [ ] Actionable item 2
-**Assessment:** One-sentence strategic value judgment.
-
-Be concise but specific. No filler.`;
+      const prompt = buildUnifiedSummaryPrompt({
+        transcript,
+        callerInfo: {
+          name: caller.name || null,
+          owner: caller.owner || null,
+          context: caller.context || null
+        },
+        conversationObjective: 'You initiated this call.',
+        disclosure,
+        collaborationState,
+        ownerContext: unifiedOwnerContext
+      });
 
       // Try runtime.summarize if available (OpenClaw path)
       if (typeof runtime.summarize === 'function') {
@@ -505,6 +544,8 @@ Be concise but specific. No filler.`;
     }
 
     // Conclude locally with summarizer
+    // Store conversationId so _buildSummarizer can look up collab state
+    this.lastConversationId = conversationId;
     let summary = null;
     if (this.convStore) {
       try {

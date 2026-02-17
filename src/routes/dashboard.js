@@ -210,9 +210,42 @@ function buildContext(options = {}) {
     config,
     convStore,
     callbookStore,
+    getUpdateManager: typeof options.getUpdateManager === 'function'
+      ? options.getUpdateManager
+      : (() => null),
     logger,
     agentContext,
     staticDir: DASHBOARD_STATIC_DIR
+  };
+}
+
+function resolveAutoUpdateStatus(context) {
+  const manager = context.getUpdateManager ? context.getUpdateManager() : null;
+  const config = context.config && typeof context.config.getAutoUpdate === 'function'
+    ? context.config.getAutoUpdate()
+    : {
+      enabled: true,
+      intervalMs: 60 * 60 * 1000,
+      allowMajor: false,
+      lastGoodVersion: null
+    };
+  const runtime = manager && typeof manager.getStatus === 'function'
+    ? manager.getStatus()
+    : null;
+  return {
+    enabled: runtime ? Boolean(runtime.enabled) : Boolean(config.enabled),
+    interval_ms: runtime && Number.isFinite(runtime.interval_ms) ? runtime.interval_ms : config.intervalMs,
+    allow_major: runtime ? Boolean(runtime.allow_major) : Boolean(config.allowMajor),
+    state: runtime ? runtime.state : 'up_to_date',
+    current_version: runtime ? runtime.current_version : require('../../package.json').version,
+    latest_version: runtime ? runtime.latest_version : null,
+    target_version: runtime ? runtime.target_version : null,
+    active_calls: runtime ? runtime.active_calls : 0,
+    last_checked_at: runtime ? runtime.last_checked_at : null,
+    last_success_at: runtime ? runtime.last_success_at : null,
+    last_error: runtime ? runtime.last_error : null,
+    defer_reason: runtime ? runtime.defer_reason : null,
+    last_good_version: config.lastGoodVersion || null
   };
 }
 
@@ -537,7 +570,76 @@ function createDashboardApiRouter(options = {}) {
       callbook: {
         enabled: Boolean(context.callbookStore && context.callbookStore.isAvailable()),
         device_count: Array.isArray(devices) ? devices.length : 0
-      }
+      },
+      auto_update: resolveAutoUpdateStatus(context)
+    });
+  });
+
+  router.get('/update/status', (req, res) => {
+    return res.json({
+      success: true,
+      auto_update: resolveAutoUpdateStatus(context)
+    });
+  });
+
+  router.post('/update/check', async (req, res) => {
+    const manager = context.getUpdateManager ? context.getUpdateManager() : null;
+    if (!manager || typeof manager.triggerCheck !== 'function') {
+      return res.status(503).json({
+        success: false,
+        error: 'updater_unavailable',
+        message: 'Auto-updater is not initialized for this server.'
+      });
+    }
+    await manager.triggerCheck({ reason: 'dashboard_manual_check' });
+    return res.json({
+      success: true,
+      auto_update: resolveAutoUpdateStatus(context)
+    });
+  });
+
+  router.post('/update/now', async (req, res) => {
+    const manager = context.getUpdateManager ? context.getUpdateManager() : null;
+    if (!manager || typeof manager.triggerUpdate !== 'function') {
+      return res.status(503).json({
+        success: false,
+        error: 'updater_unavailable',
+        message: 'Auto-updater is not initialized for this server.'
+      });
+    }
+    const force = parseBoolean(req.body && (req.body.force !== undefined ? req.body.force : req.body.force_update));
+    await manager.triggerUpdate({
+      reason: 'dashboard_manual_update',
+      force
+    });
+    return res.json({
+      success: true,
+      auto_update: resolveAutoUpdateStatus(context)
+    });
+  });
+
+  router.put('/update/config', async (req, res) => {
+    const manager = context.getUpdateManager ? context.getUpdateManager() : null;
+    const body = req.body || {};
+    const enabled = body.enabled !== undefined ? parseBoolean(body.enabled) : undefined;
+
+    if (enabled === undefined) {
+      return res.status(400).json({
+        success: false,
+        error: 'enabled_required',
+        message: 'Pass { enabled: true|false }.'
+      });
+    }
+
+    if (manager && typeof manager.setEnabled === 'function') {
+      await manager.setEnabled(enabled);
+    } else if (context.config && typeof context.config.setAutoUpdate === 'function') {
+      context.config.setAutoUpdate({ enabled });
+    }
+
+    return res.json({
+      success: true,
+      auto_update: resolveAutoUpdateStatus(context)
     });
   });
 

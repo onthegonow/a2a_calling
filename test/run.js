@@ -6,9 +6,10 @@
  * Discovers and runs all *.test.js files under test/.
  *
  * Usage:
- *   node test/run.js                  # run all tests
+ *   node test/run.js                  # run all tests (excludes e2e)
  *   node test/run.js --unit           # unit tests only
  *   node test/run.js --integration    # integration tests only
+ *   node test/run.js --e2e            # e2e tests only
  *   node test/run.js --filter tokens  # tests matching "tokens"
  *   node test/run.js --verbose        # show passing test names too
  */
@@ -20,6 +21,7 @@ const args = process.argv.slice(2);
 const flags = {
   unit: args.includes('--unit'),
   integration: args.includes('--integration'),
+  e2e: args.includes('--e2e'),
   verbose: args.includes('--verbose') || args.includes('-v'),
   filter: args.find((a, i) => args[i - 1] === '--filter') || null
 };
@@ -48,8 +50,16 @@ if (flags.unit) {
 if (flags.integration) {
   testFiles = testFiles.filter(f => f.includes('/integration/'));
 }
+if (flags.e2e) {
+  testFiles = testFiles.filter(f => f.includes('/e2e/'));
+}
 if (flags.filter) {
   testFiles = testFiles.filter(f => f.includes(flags.filter));
+}
+
+// Default: exclude e2e tests unless explicitly requested (they're slower)
+if (!flags.unit && !flags.integration && !flags.e2e && !flags.filter) {
+  testFiles = testFiles.filter(f => !f.includes('/e2e/'));
 }
 
 // Test context — each file gets its own

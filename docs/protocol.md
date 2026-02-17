@@ -309,6 +309,85 @@ a2a_call({
 }
 ```
 
+## E2E Testing
+
+### Architecture
+
+E2E tests run in fully isolated environments. Each test gets its own temp directory, config directory (`A2A_CONFIG_DIR`), and ephemeral port. No shared state between tests; no pollution of the host system.
+
+Core components:
+
+| Component | File | Purpose |
+|-----------|------|---------|
+| Environment | `test/e2e/env.js` | Creates isolated temp dir, config dir, port finder, cleanup |
+| Two-server harness | `test/e2e/two-server.js` | Spins up two independent A2A servers for cross-agent tests |
+| CLI runner | `test/e2e/cli-runner.js` | Wraps `bin/cli.js` as child process with structured output |
+| Agent prompt | `docs/prompts/e2e-test-agent.md` | 9-step prompt sequence for Claude subagent validation |
+
+### Test Categories
+
+- **Infrastructure** (`env.test.js`) -- Isolated environments, port allocation, cleanup
+- **CLI integration** (`cli-runner.test.js`) -- Command execution, onboarding, exit codes, timeouts
+- **Cross-agent flow** (`two-server.test.js`) -- Two servers, token isolation, ping/invoke across instances
+- **Error handling** -- Bad tokens, missing auth, revoked tokens, malformed requests
+- **Summary validation** -- Prompt correctness across `server.js`, `openclaw-integration.js`, `claude-subagent.js` paths
+
+### Entry Points
+
+```bash
+# Run all tests (unit + integration + E2E)
+node test/run.js
+
+# Run E2E tests only
+node test/run.js --e2e
+
+# Standalone orchestrator with verbose or JSON output
+node test/e2e/orchestrate.js [--verbose] [--json]
+
+# Default: excludes E2E for faster feedback
+node test/run.js
+```
+
+The `--e2e` flag filters to files under `test/e2e/`. The standalone orchestrator runs the full 9-step sequence from `docs/prompts/e2e-test-agent.md` and outputs structured JSON results.
+
+### File Structure
+
+```
+test/e2e/
+  env.js                  # createE2EEnv() — isolated temp + config + port
+  env.test.js             # Tests for env isolation and port allocation
+  cli-runner.js           # CLIRunner class — child-process CLI wrapper
+  cli-runner.test.js      # Tests for CLI execution, onboarding, timeouts
+  two-server.js           # TwoServerHarness — two independent A2A instances
+  two-server.test.js      # Tests for cross-agent token isolation and ping
+  orchestrate.js           # Standalone E2E orchestrator (planned)
+```
+
+### Adding New E2E Tests
+
+1. Create `test/e2e/<name>.test.js` exporting `function(test, assert, helpers)`.
+2. Use `createE2EEnv()` for isolation. Always call `env.cleanup()` in a finally block.
+3. Use `TwoServerHarness` if you need two agents. Call `harness.teardown()` after.
+4. Use `CLIRunner` for CLI interactions. It handles `A2A_CONFIG_DIR` automatically.
+5. The test runner discovers all `*.test.js` files recursively -- no registration needed.
+
+Example skeleton:
+
+```js
+module.exports = function (test, assert, helpers) {
+  const { createE2EEnv } = require('./env');
+
+  test('my new E2E scenario', async () => {
+    const env = createE2EEnv('my-test');
+    try {
+      // ... test logic using env.configDir, env.findAvailablePort()
+    } finally {
+      env.cleanup();
+    }
+  });
+};
+```
+
 ## Future Protocol Extensions (v1+)
 
 - **Capability advertisement**: Agents declare what they can help with

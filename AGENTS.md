@@ -75,17 +75,18 @@ git add package.json
 git commit -m "chore: release $(node -p \"require('./package.json').version\")"
 env -u GIT_ASKPASS -u VSCODE_GIT_ASKPASS_NODE -u VSCODE_GIT_IPC_HANDLE -u VSCODE_GIT_IPC_AUTH_TOKEN git push origin main
 
-# 4) publish to npm
-npm_config_cache=/tmp/npm-cache npm publish --access public
-
-# 5) tag + GitHub release
+# 4) tag + GitHub release (must exist before npm publish)
 VERSION=$(node -p "require('./package.json').version")
 git tag "v${VERSION}"
 env -u GIT_ASKPASS -u VSCODE_GIT_ASKPASS_NODE -u VSCODE_GIT_IPC_HANDLE -u VSCODE_GIT_IPC_AUTH_TOKEN git push origin "v${VERSION}"
 gh release create "v${VERSION}" --generate-notes
+
+# 5) publish to npm
+npm_config_cache=/tmp/npm-cache npm publish --access public
 ```
 
 If a GitHub Actions release workflow exists, prefer that for the final publish so GitHub + npm stay in sync.
+For macOS app users, ensure the GitHub Release has uploaded app artifacts (`.dmg` / `.app.tar.gz`) before running `npm publish`.
 
 ## Project Structure
 

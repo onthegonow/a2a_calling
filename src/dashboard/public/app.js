@@ -1,6 +1,7 @@
 const state = {
   settings: null,
   dashboardStatus: null,
+  autoUpdate: null,
   callbookDevices: [],
   contacts: [],
   selectedContactId: null,
@@ -61,6 +62,20 @@ function esc(text) {
     .replaceAll('>', '&gt;')
     .replaceAll('"', '&quot;')
     .replaceAll("'", '&#039;');
+}
+
+function formatUpdaterState(stateValue) {
+  const state = String(stateValue || '').trim() || 'unknown';
+  return state.replaceAll('_', ' ');
+}
+
+function updaterPillClass(stateValue) {
+  const state = String(stateValue || '').trim();
+  if (state === 'failed') return 'err';
+  if (state === 'waiting_for_safe_restart' || state === 'checking' || state === 'downloading' || state === 'applying' || state === 'restarting') {
+    return 'warn';
+  }
+  return 'ok';
 }
 
 async function copyText(value) {
@@ -284,7 +299,7 @@ function bindContactsActions() {
     if (!urlEl || !serverNameEl) return;
     if (mineEl && !mineEl.checked) return;
     if (serverNameEl.value.trim()) return;
-    const match = String(urlEl.value || '').trim().match(/^(?:a2a|oclaw):\\/\\/([^/]+)\\//);
+    const match = String(urlEl.value || '').trim().match(/^(?:a2a|oclaw):\/\/([^/]+)\//);
     if (match && match[1]) {
       serverNameEl.value = match[1];
     }
@@ -1035,12 +1050,57 @@ function renderCallbookStatus() {
   `;
 }
 
+function renderAutoUpdateStatus() {
+  const el = document.getElementById('auto-update-status');
+  const toggleBtn = document.getElementById('auto-update-toggle');
+  if (!el) return;
+
+  const au = state.autoUpdate;
+  if (!au) {
+    el.textContent = 'Loading…';
+    if (toggleBtn) toggleBtn.disabled = true;
+    return;
+  }
+
+  const stateText = formatUpdaterState(au.state);
+  const pillClass = updaterPillClass(au.state);
+  const enabled = Boolean(au.enabled);
+  const intervalSec = Number.isFinite(au.interval_ms) ? Math.floor(au.interval_ms / 1000) : null;
+
+  el.innerHTML = `
+    <div><strong>Status:</strong> <span class="status-pill ${pillClass}">${esc(stateText)}</span></div>
+    <div><strong>Enabled:</strong> ${enabled ? 'yes' : 'no'}</div>
+    <div><strong>Current version:</strong> <span class="mono">${esc(au.current_version || '-')}</span></div>
+    <div><strong>Latest version:</strong> <span class="mono">${esc(au.latest_version || '-')}</span></div>
+    <div><strong>Target version:</strong> <span class="mono">${esc(au.target_version || '-')}</span></div>
+    <div><strong>Active calls:</strong> ${esc(String(au.active_calls || 0))}</div>
+    <div><strong>Interval:</strong> ${intervalSec === null ? '-' : `${intervalSec}s`}</div>
+    <div><strong>Last checked:</strong> ${esc(fmtDate(au.last_checked_at))}</div>
+    <div><strong>Last success:</strong> ${esc(fmtDate(au.last_success_at))}</div>
+    ${au.defer_reason ? `<div><strong>Deferred:</strong> ${esc(au.defer_reason)}</div>` : ''}
+    ${au.last_error ? `<div><strong>Error:</strong> <span class="mono">${esc(au.last_error)}</span></div>` : ''}
+  `;
+
+  if (toggleBtn) {
+    toggleBtn.disabled = false;
+    toggleBtn.textContent = enabled ? 'Disable auto-update' : 'Enable auto-update';
+  }
+}
+
 async function loadDashboardStatus(refreshIp = false) {
   const payload = await request(`/status${refreshIp ? '?refresh_ip=true' : ''}`);
   state.dashboardStatus = payload;
+  state.autoUpdate = payload.auto_update || state.autoUpdate;
   renderCallbookStatus();
+  renderAutoUpdateStatus();
   renderContacts();
   renderContactDetail();
+}
+
+async function loadAutoUpdateStatus() {
+  const payload = await request('/update/status');
+  state.autoUpdate = payload.auto_update || null;
+  renderAutoUpdateStatus();
 }
 
 function renderCallbookDevices() {
@@ -1154,6 +1214,47 @@ function bindCallbookActions() {
   });
 }
 
+function bindAutoUpdateActions() {
+  document.getElementById('auto-update-refresh')?.addEventListener('click', () => {
+    loadAutoUpdateStatus().catch(err => showNotice(err.message));
+  });
+
+  document.getElementById('auto-update-check')?.addEventListener('click', async () => {
+    try {
+      await request('/update/check', { method: 'POST', body: JSON.stringify({}) });
+      await loadAutoUpdateStatus();
+      showNotice('Update check complete');
+    } catch (err) {
+      showNotice(err.message);
+    }
+  });
+
+  document.getElementById('auto-update-now')?.addEventListener('click', async () => {
+    try {
+      await request('/update/now', { method: 'POST', body: JSON.stringify({}) });
+      await loadAutoUpdateStatus();
+      showNotice('Update triggered');
+    } catch (err) {
+      showNotice(err.message);
+    }
+  });
+
+  document.getElementById('auto-update-toggle')?.addEventListener('click', async () => {
+    const au = state.autoUpdate || {};
+    const nextEnabled = !Boolean(au.enabled);
+    try {
+      await request('/update/config', {
+        method: 'PUT',
+        body: JSON.stringify({ enabled: nextEnabled })
+      });
+      await loadAutoUpdateStatus();
+      showNotice(nextEnabled ? 'Auto-update enabled' : 'Auto-update disabled');
+    } catch (err) {
+      showNotice(err.message);
+    }
+  });
+}
+
 function renderInvites() {
   const tbody = document.querySelector('#invites-table tbody');
   tbody.innerHTML = '';
@@ -1247,6 +1348,7 @@ async function bootstrap() {
   bindContactsActions();
   bindSettingsActions();
   bindCallbookActions();
+  bindAutoUpdateActions();
   bindInviteActions();
   bindRefreshButtons();
 
@@ -1254,6 +1356,7 @@ async function bootstrap() {
     await Promise.all([
       loadSettings(),
       loadDashboardStatus(),
+      loadAutoUpdateStatus(),
       loadCallbookDevices(),
       loadContacts(),
       loadCalls(),
@@ -1262,6 +1365,10 @@ async function bootstrap() {
       loadLogs()
     ]);
     showNotice('Dashboard loaded');
+
+    setInterval(() => {
+      loadAutoUpdateStatus().catch(() => {});
+    }, 10000);
   } catch (err) {
     showNotice(err.message);
   }

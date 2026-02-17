@@ -186,4 +186,24 @@ module.exports = function (test, assert, helpers) {
     assert.equal(exported.onboarding, undefined); // private field excluded
     tmp.cleanup();
   });
+
+  test('auto-update config round-trips', () => {
+    const config = freshConfig();
+    const initial = config.getAutoUpdate();
+    assert.equal(initial.enabled, true);
+    assert.equal(initial.allowMajor, false);
+
+    config.setAutoUpdate({
+      enabled: false,
+      intervalMs: 120000,
+      allowMajor: true,
+      lastGoodVersion: '0.6.45'
+    });
+    const next = config.getAutoUpdate();
+    assert.equal(next.enabled, false);
+    assert.equal(next.intervalMs, 120000);
+    assert.equal(next.allowMajor, true);
+    assert.equal(next.lastGoodVersion, '0.6.45');
+    tmp.cleanup();
+  });
 };

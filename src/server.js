@@ -23,6 +23,10 @@ const {
 const { findAvailablePort } = require('./lib/port-scanner');
 const { createLogger } = require('./lib/logger');
 const { writePidFile, removePidFile } = require('./lib/pid-file');
+const { buildUnifiedSummaryPrompt } = require('./lib/summary-prompt');
+const { A2AConfig } = require('./lib/config');
+const { UpdateManager } = require('./lib/update-manager');
+const { spawn } = require('child_process');
 
 const DEFAULT_PORTS = [80, 3001, 8080, 8443, 9001];
 const requestedPort = process.env.PORT ? parseInt(process.env.PORT, 10)
@@ -61,6 +65,7 @@ function loadAgentContext() {
 
 const agentContext = loadAgentContext();
 const tokenStore = new TokenStore();
+const config = new A2AConfig();
 const runtime = createRuntimeAdapter({
   workspaceDir,
   agentContext,
@@ -691,30 +696,61 @@ async function callAgent(message, a2aContext) {
  * Generate strategic summary via sub-agent
  */
 async function generateSummary(messages, callerInfo) {
-  const messageText = messages.map(m => {
-    const role = m.direction === 'inbound' ? `[${callerInfo?.name || 'Caller'}]` : '[You]';
-    return `${role}: ${m.content}`;
-  }).join('\n');
+  // Look up collaboration state if we have a conversation_id
+  const conversationId = callerInfo?.conversation_id || callerInfo?.conversationId;
+  let collaborationState = null;
+  if (conversationId) {
+    const collabSession = collaborationSessions.get(conversationId);
+    if (collabSession) {
+      collaborationState = {
+        phase: collabSession.phase,
+        overlapScore: collabSession.overlapScore,
+        turnCount: collabSession.turnCount,
+        activeThreads: collabSession.activeThreads,
+        candidateCollaborations: collabSession.candidateCollaborations,
+        closeSignal: collabSession.closeSignal
+      };
+    }
+  }
 
-  const callerDesc = `${callerInfo?.name || 'Unknown'}${callerInfo?.owner ? ` (${callerInfo.owner}'s agent)` : ''}`;
+  // Load disclosure manifest for the caller's tier
+  const tier = callerInfo?.tier || 'public';
+  let disclosure = null;
+  try {
+    const tierTopics = getTopicsForTier(tier);
+    if (tierTopics) {
+      disclosure = {
+        topics: tierTopics.topics || [],
+        objectives: tierTopics.objectives || [],
+        doNotDiscuss: tierTopics.do_not_discuss || [],
+        neverDisclose: tierTopics.never_disclose || []
+      };
+    }
+  } catch (e) {
+    // Disclosure is optional — continue without it
+  }
 
-  const prompt = `Summarize this A2A call for the owner. Write from the owner's perspective.
+  // Build transcript in unified format
+  const transcript = messages.map(m => ({
+    direction: m.direction,
+    content: m.content
+  }));
 
-Conversation with ${callerDesc}:
-${messageText}
-
-Structure your summary with these sections:
-
-**Who:** Who called, who they represent, key facts about them.
-**Key Discoveries:** What was learned about the other side — capabilities, interests, blind spots.
-**Collaboration Potential:** Rate HIGH/MEDIUM/LOW. List specific opportunities identified.
-**What We Learned vs Shared:** Brief information exchange audit — what did we get, what did we give.
-**Recommended Follow-Up:**
-- [ ] Actionable item 1
-- [ ] Actionable item 2
-**Assessment:** One-sentence strategic value judgment.
-
-Be concise but specific. No filler.`;
+  const prompt = buildUnifiedSummaryPrompt({
+    transcript,
+    callerInfo: {
+      name: callerInfo?.name || null,
+      owner: callerInfo?.owner || null,
+      context: callerInfo?.context || null
+    },
+    disclosure,
+    collaborationState,
+    ownerContext: {
+      agentName: agentContext.name,
+      ownerName: agentContext.owner,
+      goals: []
+    }
+  });
 
   try {
     return await runtime.summarize({
@@ -723,13 +759,13 @@ Be concise but specific. No filler.`;
       messages,
       callerInfo,
       traceId: callerInfo?.trace_id || callerInfo?.traceId,
-      conversationId: callerInfo?.conversation_id || callerInfo?.conversationId
+      conversationId
     });
   } catch (err) {
     logger.error('Summary generation failed', {
       event: 'summary_generation_failed',
       traceId: callerInfo?.trace_id || callerInfo?.traceId,
-      conversationId: callerInfo?.conversation_id || callerInfo?.conversationId,
+      conversationId,
       error_code: 'SUMMARY_GENERATION_FAILED',
       hint: 'Check summarizer runtime and command configuration for summary stage.',
       error: err,
@@ -773,17 +809,23 @@ async function notifyOwner({ level, token, caller, message, conversation_id, tra
 
 const app = express();
 app.use(express.json());
+let activeCallMonitor = null;
+let updateManager = null;
 
 // Minimal owner dashboard (local by default unless A2A_ADMIN_TOKEN is provided)
 // All routes under /api/a2a/* so reverse proxy config stays simple.
 app.use('/api/a2a/dashboard', createDashboardApiRouter({
   tokenStore,
   agentContext,
+  config,
+  getUpdateManager: () => updateManager,
   logger: logger.child({ component: 'a2a.dashboard' })
 }));
 app.use('/api/a2a/dashboard', createDashboardUiRouter({
   tokenStore,
   agentContext,
+  config,
+  getUpdateManager: () => updateManager,
   logger: logger.child({ component: 'a2a.dashboard' })
 }));
 
@@ -802,6 +844,9 @@ app.use('/callbook', createCallbookRouter());
 app.use('/api/a2a', createRoutes({
   tokenStore,
   logger: logger.child({ component: 'a2a.routes' }),
+  onCallMonitor: (monitor) => {
+    activeCallMonitor = monitor;
+  },
   
   async handleMessage(message, context, options) {
     const traceId = context.trace_id || null;
@@ -905,6 +950,50 @@ async function startServer() {
       }
     });
     writePidFile(process.pid);
+
+    if (!updateManager) {
+      const pkg = require('../package.json');
+      const restartFn = async () => {
+        const cliPath = path.join(__dirname, '..', 'bin', 'cli.js');
+        const helperScript = `
+          const { spawn } = require('child_process');
+          const startNext = () => {
+            const child = spawn(process.execPath, [${JSON.stringify(cliPath)}, 'server', '--port', ${JSON.stringify(String(port))}], {
+              detached: true,
+              stdio: 'ignore',
+              env: process.env
+            });
+            child.unref();
+            process.exit(0);
+          };
+          setTimeout(startNext, 1500);
+        `;
+        const helper = spawn(process.execPath, ['-e', helperScript], {
+          detached: true,
+          stdio: 'ignore',
+          env: process.env
+        });
+        helper.unref();
+        setTimeout(() => {
+          process.kill(process.pid, 'SIGTERM');
+        }, 150);
+      };
+
+      updateManager = new UpdateManager({
+        currentVersion: pkg.version,
+        config,
+        logger: logger.child({ component: 'a2a.updater' }),
+        getCallMonitor: () => activeCallMonitor,
+        restartFn
+      });
+      updateManager.start();
+      updateManager.triggerCheck({ reason: 'startup' }).catch((err) => {
+        logger.warn('Initial auto-update check failed', {
+          event: 'updater_startup_check_failed',
+          error: err
+        });
+      });
+    }
   });
 
   server.on('error', (err) => {
@@ -920,8 +1009,8 @@ async function startServer() {
     throw err;
   });
 
-  // Graceful shutdown: clean up PID file
   function shutdown() {
+    if (updateManager) updateManager.stop();
     removePidFile();
     server.close(() => process.exit(0));
     // Force exit after 5s if connections won't close

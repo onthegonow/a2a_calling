@@ -202,6 +202,33 @@ tr[data-selected="1"] td {
   display: none;
 }
 
+.status-pill {
+  display: inline-block;
+  padding: 0.15rem 0.45rem;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+.status-pill.ok {
+  background: #ecfdf3;
+  border-color: #9bd8b8;
+  color: #125934;
+}
+
+.status-pill.warn {
+  background: #fff7e8;
+  border-color: #f1d08e;
+  color: #8a5a00;
+}
+
+.status-pill.err {
+  background: #fff0f1;
+  border-color: #efb1b6;
+  color: #8c1d26;
+}
+
 @media (max-width: 720px) {
   nav {
     overflow-x: auto;

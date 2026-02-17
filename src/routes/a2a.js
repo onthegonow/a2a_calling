@@ -174,17 +174,24 @@ function createRoutes(options = {}) {
     maxDurationMs: options.maxDurationMs || 300000,
     logger: logger.child({ component: 'a2a.call-monitor' })
   });
+  if (typeof options.onCallMonitor === 'function') {
+    try {
+      options.onCallMonitor(monitor);
+    } catch (_) {}
+  }
 
   /**
    * GET /status
    * Check if A2A is enabled
    */
   router.get('/status', (req, res) => {
+    const activeCalls = monitor ? monitor.getActiveCount() : 0;
     res.json({
       a2a: true,
       version: require('../../package.json').version,
       capabilities: ['invoke', 'multi-turn'],
-      rate_limits: limits
+      rate_limits: limits,
+      active_calls: activeCalls
     });
   });
 

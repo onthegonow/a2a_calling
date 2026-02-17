@@ -2491,8 +2491,30 @@ a2a add "${inviteUrl}" "${ownerText || 'friend'}" && a2a call "${ownerText || 'f
     const { execSync } = require('child_process');
     const path = require('path');
     const pkg = require('../package.json');
+    const { A2AConfig } = require('../src/lib/config');
     const currentVersion = pkg.version;
     const checkOnly = args.flags.check || args.flags.c;
+    const autoMode = args.flags.auto ? String(args.flags.auto).trim().toLowerCase() : null;
+
+    if (autoMode) {
+      const config = new A2AConfig();
+      if (autoMode === 'status') {
+        const au = config.getAutoUpdate ? config.getAutoUpdate() : { enabled: true, intervalMs: 3600000, allowMajor: false };
+        console.log('Auto-update configuration:\n');
+        console.log(`  Enabled: ${au.enabled ? 'yes' : 'no'}`);
+        console.log(`  Interval: ${Math.floor((au.intervalMs || 3600000) / 1000)}s`);
+        console.log(`  Allow major updates: ${au.allowMajor ? 'yes' : 'no'}`);
+        console.log(`  Last known good version: ${au.lastGoodVersion || '(none)'}`);
+        return;
+      }
+      if (autoMode === 'on' || autoMode === 'off') {
+        config.setAutoUpdate({ enabled: autoMode === 'on' });
+        console.log(`Auto-update ${autoMode === 'on' ? 'enabled' : 'disabled'}.`);
+        return;
+      }
+      console.error('Invalid --auto value. Use: on | off | status');
+      process.exit(1);
+    }
 
     console.log(`\n📦 A2A Update\n${'─'.repeat(50)}\n`);
     console.log(`   Installed: v${currentVersion}`);
@@ -2681,6 +2703,7 @@ Server:
 
   update              Update A2A to latest version (npm or git pull)
     --check, -c       Check for updates without installing
+    --auto            Manage auto-update: on|off|status
 
   install             Install A2A for OpenClaw
   setup               Auto setup (gateway-aware dashboard install)

@@ -7,6 +7,7 @@
 const fs = require('fs');
 const path = require('path');
 const { createLogger } = require('./logger');
+const { buildUnifiedSummaryPrompt } = require('./summary-prompt');
 
 const logger = createLogger({ component: 'a2a.openclaw-integration' });
 
@@ -89,73 +90,28 @@ function loadOwnerContext(workspaceDir = process.cwd(), options = {}) {
  * Track the exchange balance AND surface partnership opportunities.
  */
 function buildSummaryPrompt(messages, ownerContext, callerInfo = {}) {
-  const messageText = messages.map(m => {
-    const role = m.direction === 'inbound' ? `[Caller${callerInfo.name ? ` - ${callerInfo.name}` : ''}]` : '[You]';
-    return `${role}: ${m.content}`;
-  }).join('\n\n');
+  // Build transcript in unified format
+  const transcript = messages.map(m => ({
+    direction: m.direction,
+    content: m.content
+  }));
 
-  const goalsSection = ownerContext.goals?.length ? `### Current Goals\n- ${ownerContext.goals.join('\n- ')}` : '';
-  const interestsSection = ownerContext.interests?.length ? `### Interests\n- ${ownerContext.interests.join('\n- ')}` : '';
+  // Map ownerContext (which has .user, .goals, .interests from USER.md) into unified format
+  const unifiedOwnerContext = {
+    agentName: null,
+    ownerName: null,
+    goals: ownerContext?.goals || []
+  };
 
-  return `You just finished an A2A agent-to-agent call. Analyze it strategically for your owner.
-
-## Philosophy
-A2A is cooperative AND adversarial. Each agent maximizes value for their own owner — but the best outcomes are mutual wins. Your job:
-
-1. **Track the exchange** — what did we get vs give?
-2. **Find mutual value** — what can BOTH parties gain?
-3. **Surface alignment** — does this connect to owner's goals?
-4. **Advise strategically** — protect interests while building relationships
-
-## Your Owner's Context
-${ownerContext.user ? `### From USER.md\n${ownerContext.user.slice(0, 2000)}` : ''}
-
-${goalsSection}
-
-${interestsSection}
-
-## The Conversation
-${messageText}
-
-## Caller Context
-${callerInfo.name ? `Name: ${callerInfo.name}` : 'Unknown caller'}
-${callerInfo.context ? `Context: ${callerInfo.context}` : ''}
-
-## Your Task
-Analyze as a strategic advisor. Return JSON:
-
-{
-  "who": "Who called, who they represent, key facts about them",
-
-  "keyDiscoveries": ["What was learned about the other side — capabilities, interests, blind spots"],
-
-  "collaborationPotential": {
-    "rating": "HIGH | MEDIUM | LOW",
-    "opportunities": ["specific opportunities identified"]
-  },
-
-  "exchange": {
-    "weGot": ["info, commitments, or value we extracted"],
-    "weGave": ["info, compute, or commitments we provided"],
-    "balance": "favorable | even | unfavorable"
-  },
-
-  "recommendedFollowUp": ["actionable items with specifics"],
-
-  "assessment": "One-sentence strategic value judgment",
-
-  "trust": {
-    "assessment": "appropriate | too_high | too_low",
-    "recommendation": "maintain | increase | decrease | revoke",
-    "pattern": "What's their angle? Genuine partner or extractive?"
-  },
-
-  "ownerBrief": "2-3 sentences: the strategic takeaway for your owner"
-}
-
-Think like a strategic advisor: protect your owner's interests AND find mutual wins.
-
-JSON:`;
+  return buildUnifiedSummaryPrompt({
+    transcript,
+    callerInfo: {
+      name: callerInfo.name || null,
+      owner: callerInfo.owner || null,
+      context: callerInfo.context || null
+    },
+    ownerContext: unifiedOwnerContext
+  });
 }
 
 /**
