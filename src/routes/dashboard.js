@@ -591,7 +591,7 @@ function createDashboardApiRouter(options = {}) {
         message: 'Auto-updater is not initialized for this server.'
       });
     }
-    await manager.triggerCheck({ reason: 'dashboard_manual_check' });
+    await manager.triggerCheck({ reason: 'dashboard_manual_check', forceCheck: true });
     return res.json({
       success: true,
       auto_update: resolveAutoUpdateStatus(context)

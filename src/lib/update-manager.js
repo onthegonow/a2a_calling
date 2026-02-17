@@ -165,7 +165,7 @@ class UpdateManager extends EventEmitter {
   }
 
   async triggerCheck(options = {}) {
-    return this._runCycle({ ...options, manualUpdate: false });
+    return this._runCycle({ ...options, manualUpdate: false, forceCheck: Boolean(options.forceCheck) });
   }
 
   async triggerUpdate(options = {}) {
@@ -177,7 +177,7 @@ class UpdateManager extends EventEmitter {
     if (this._running) {
       return this.getStatus();
     }
-    if (!this.enabled && !options.manualUpdate) {
+    if (!this.enabled && !options.manualUpdate && !options.forceCheck) {
       return this.getStatus();
     }
 
@@ -311,4 +311,3 @@ module.exports = {
   shouldApplyUpdate,
   UpdateManager
 };
-
