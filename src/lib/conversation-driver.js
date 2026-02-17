@@ -128,6 +128,12 @@ class ConversationDriver {
     this.maxTurns = options.maxTurns || 30;
     this.onTurn = options.onTurn || null;
     this.tier = options.tier || 'public';
+    // Optional permission envelope for runtimes (primarily Claude mode).
+    // If provided by caller, this keeps tool allowlists variable per token/profile.
+    this.capabilities = Array.isArray(options.capabilities) ? options.capabilities : [];
+    this.allowedTopics = Array.isArray(options.allowedTopics) ? options.allowedTopics : [];
+    this.allowedGoals = Array.isArray(options.allowedGoals) ? options.allowedGoals : [];
+    this.allowedTools = Array.isArray(options.allowedTools) ? options.allowedTools : [];
     this.summarizer = options.summarizer || null;
     this.ownerContext = options.ownerContext || {};
     this.claudeMode = options.runtime?.mode === 'claude';
@@ -225,8 +231,11 @@ class ConversationDriver {
       // Try runtime.summarize if available (OpenClaw path)
       if (typeof runtime.summarize === 'function') {
         try {
+          const summarySessionId = this.lastConversationId
+            ? `a2a-${this.lastConversationId}`
+            : `summary-${Date.now()}`;
           return await runtime.summarize({
-            sessionId: `summary-${Date.now()}`,
+            sessionId: summarySessionId,
             prompt,
             messages,
             callerInfo: { name: agentContext.name, owner: agentContext.owner },
@@ -407,7 +416,14 @@ class ConversationDriver {
         tier: this.tier,
         ownerName: this.agentContext.owner,
         agentName: this.agentContext.name,
-        roleContext: 'You initiated this call.'
+        roleContext: 'You initiated this call.',
+        capabilities: this.capabilities,
+        allowedTopics: this.allowedTopics,
+        allowed_topics: this.allowedTopics,
+        allowedGoals: this.allowedGoals,
+        allowed_goals: this.allowedGoals,
+        allowedTools: this.allowedTools,
+        allowed_tools: this.allowedTools
       };
       if (this.claudeMode) {
         contextPayload.turnCount = turn + 1;

@@ -149,6 +149,7 @@ Customize tiers in `~/.config/openclaw/a2a-config.json`:
   "tiers": {
     "friends": {
       "topics": ["chat", "web", "files", "calendar"],
+      "allowed_tools": ["Bash(readonly)", "Read", "Grep", "Glob", "WebSearch", "WebFetch"],
       "disclosure": "minimal"
     }
   }

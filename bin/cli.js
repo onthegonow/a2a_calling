@@ -646,6 +646,22 @@ async function handleDisclosureSubmit(args, commandLabel = 'onboard') {
     return tierData.topics.map(t => String(t && t.topic || '').trim()).filter(Boolean);
   }
 
+  // Helper to extract allowed tools per tier from the disclosure manifest.
+  function getTierTools(tierData) {
+    if (!tierData || !Array.isArray(tierData.allowed_tools)) return [];
+    const seen = new Set();
+    const out = [];
+    for (const tool of tierData.allowed_tools) {
+      const cleaned = String(tool || '').trim();
+      if (!cleaned) continue;
+      const key = cleaned.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(cleaned);
+    }
+    return out;
+  }
+
   const tiersData = manifest.tiers || {};
 
   // Derive goals from disclosure objectives (used in tier config and token creation)
@@ -659,19 +675,32 @@ async function handleDisclosureSubmit(args, commandLabel = 'onboard') {
     : ['grow-network', 'find-collaborators', 'build-in-public'];
 
   try {
-    config.setTier('public', {
+    const publicTools = getTierTools(tiersData.public);
+    const friendsTools = [...publicTools, ...getTierTools(tiersData.friends)];
+    const familyTools = [...friendsTools, ...getTierTools(tiersData.family)];
+
+    const publicTierPatch = {
       topics: getTierTopics(tiersData.public),
       goals: tokenGoals,
       disclosure: 'minimal'
-    });
-    config.setTier('friends', {
+    };
+    if (publicTools.length > 0) publicTierPatch.allowed_tools = publicTools;
+
+    const friendsTierPatch = {
       topics: [...getTierTopics(tiersData.public), ...getTierTopics(tiersData.friends)],
       disclosure: 'standard'
-    });
-    config.setTier('family', {
+    };
+    if (friendsTools.length > 0) friendsTierPatch.allowed_tools = friendsTools;
+
+    const familyTierPatch = {
       topics: [...getTierTopics(tiersData.public), ...getTierTopics(tiersData.friends), ...getTierTopics(tiersData.family)],
       disclosure: 'full'
-    });
+    };
+    if (familyTools.length > 0) familyTierPatch.allowed_tools = familyTools;
+
+    config.setTier('public', publicTierPatch);
+    config.setTier('friends', friendsTierPatch);
+    config.setTier('family', familyTierPatch);
   } catch (err) {
     console.error(`  Warning: could not sync tier config: ${err.message}`);
   }
@@ -702,6 +731,7 @@ async function handleDisclosureSubmit(args, commandLabel = 'onboard') {
   const hostname = config.getAgent().hostname || process.env.A2A_HOSTNAME || 'localhost';
 
   const publicTopics = getTierTopics(tiersData.public);
+  const publicTools = getTierTools(tiersData.public);
 
   const { token } = store.create({
     name: agentName,
@@ -712,6 +742,7 @@ async function handleDisclosureSubmit(args, commandLabel = 'onboard') {
     maxCalls: null,
     allowedTopics: publicTopics,
     allowedGoals: tokenGoals,
+    allowedTools: publicTools.length > 0 ? publicTools : null,
     notify: 'all'
   });
 
@@ -787,6 +818,7 @@ const commands = {
 
     // Get tier from --tier or --permissions flag
     const tier = args.flags.tier || args.flags.t || args.flags.permissions || args.flags.p || 'public';
+    const configTier = config.getTiers?.()[tier] || {};
     
     // Get owner from flag or config
     const configAgent = config.getAgent() || {};
@@ -807,6 +839,9 @@ const commands = {
     
     // Get objectives from disclosure
     const objectives = tierTopics.objectives || [];
+    const allowedTools = args.flags.tools
+      ? String(args.flags.tools).split(',').map(t => t.trim()).filter(Boolean)
+      : (Array.isArray(configTier.allowed_tools) ? configTier.allowed_tools : null);
     const timeoutMsRaw = args.flags['timeout-ms'] || args.flags.timeout_ms;
     const timeoutMs = timeoutMsRaw ? Number.parseInt(String(timeoutMsRaw), 10) : null;
 
@@ -820,6 +855,7 @@ const commands = {
       maxCalls,
       allowedTopics,
       allowedGoals: objectives.map(o => o.objective || o),
+      allowedTools,
       timeoutMs
     });
 
@@ -856,6 +892,9 @@ const commands = {
     console.log(`Expires: ${record.expires_at || 'never'}`);
     console.log(`Tier: ${record.tier}`);
     console.log(`Topics: ${record.allowed_topics.join(', ')}`);
+    if (Array.isArray(record.allowed_tools) && record.allowed_tools.length > 0) {
+      console.log(`Tools: ${record.allowed_tools.join(', ')}`);
+    }
     console.log(`Disclosure: ${record.disclosure}`);
     console.log(`Notify: ${record.notify}`);
     console.log(`Max calls: ${record.max_calls || 'unlimited'}`);
@@ -2856,6 +2895,7 @@ Commands:
     --expires, -e     Expiration (1h, 1d, 7d, 30d, never)
     --permissions, -p Tier (public, friends, family)
     --topics          Custom topics (comma-separated, overrides tier defaults)
+    --tools           Custom tool allowlist (comma-separated, overrides tier defaults)
     --disclosure, -d  Disclosure level (public, minimal, none)
     --notify          Owner notification (all, summary, none)
     --max-calls       Maximum invocations (default: 100)
@@ -2939,6 +2979,7 @@ Server:
 Examples:
   a2a create --name "bappybot" --owner "Benjamin Pollack" --expires 7d
   a2a create --name "custom" --topics "chat,calendar.read,email.read"
+  a2a create --name "research" --tools "Read,Grep,Glob,WebSearch,WebFetch"
   a2a contacts add a2a://host/fed_xxx --name "Alice" --owner "Alice Chen"
   a2a contacts link Alice tok_abc123
   a2a call Alice "Hello!"

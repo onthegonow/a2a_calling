@@ -4,7 +4,14 @@
  * Spawns `claude` CLI processes for real LLM-powered A2A conversations
  * as an alternative to OpenClaw for A2A conversations.
  *
- * Uses `claude -p` (print mode) with `--resume` for multi-turn context continuity.
+ * Design decision (A2A-29):
+ * We intentionally run Claude turns in stateless one-shot mode instead of `--resume`.
+ * In production we observed intermittent hangs during nested Claude startup/restore.
+ * Stateless calls cost more tokens but are operationally safer under load.
+ *
+ * Permissioning is still enforced:
+ * `--allowedTools` is derived per request from token capabilities + allowed topics
+ * and can be further constrained by per-tier `allowed_tools` policy from onboarding.
  */
 
 const { execSync, spawn } = require('child_process');
@@ -14,6 +21,43 @@ const { HARD_FALLBACK_TURN_TIMEOUT_MS } = require('./turn-timeout');
 const logger = createLogger({ component: 'a2a.claude-subagent' });
 
 const A2A_RESPONSE_REGEX = /<a2a_response>\s*([\s\S]*?)\s*<\/a2a_response>/i;
+const DEFAULT_CLAUDE_MODEL = 'claude-sonnet-4-5-20250929';
+const CLAUDE_TOOL_UNIVERSE = ['Bash', 'Bash(readonly)', 'Read', 'Grep', 'Glob', 'WebSearch', 'WebFetch'];
+const LEGACY_DEFAULT_TOOLS = ['Bash(readonly)', 'Read', 'Grep', 'Glob', 'WebSearch', 'WebFetch'];
+
+const TOOL_NAME_MAP = {
+  bash: 'Bash',
+  'bash(readonly)': 'Bash(readonly)',
+  'bash-readonly': 'Bash(readonly)',
+  read: 'Read',
+  grep: 'Grep',
+  glob: 'Glob',
+  websearch: 'WebSearch',
+  webfetch: 'WebFetch'
+};
+
+function normalizeToolName(value) {
+  const key = String(value || '').trim().toLowerCase();
+  return TOOL_NAME_MAP[key] || null;
+}
+
+function sanitizeAllowedToolList(values) {
+  if (!Array.isArray(values)) return [];
+  const out = [];
+  const seen = new Set();
+  for (const value of values) {
+    const canonical = normalizeToolName(value);
+    if (!canonical || seen.has(canonical)) continue;
+    seen.add(canonical);
+    out.push(canonical);
+  }
+  return out;
+}
+
+function formatToolListForPrompt(tools) {
+  if (!Array.isArray(tools) || tools.length === 0) return '  (none)';
+  return tools.map(tool => `  - ${tool}`).join('\n');
+}
 
 /**
  * Check if `claude` CLI is available in PATH.
@@ -40,6 +84,7 @@ function isClaudeAvailable() {
  * @param {string} config.tierObjectives - formatted objectives string
  * @param {string} config.doNotDiscuss - formatted do_not_discuss string
  * @param {string} config.neverDisclose - formatted never_disclose string
+ * @param {string[]} [config.allowedTools] - Effective tool allowlist for this call
  * @param {string} config.personalityNotes
  * @param {string} config.roleContext
  * @returns {string}
@@ -55,9 +100,16 @@ function buildSubagentSystemPrompt(config) {
     tierObjectives = '  (none specified)',
     doNotDiscuss = '  (none specified)',
     neverDisclose = '  (none specified)',
+    allowedTools = [],
     personalityNotes = '',
     roleContext = ''
   } = config;
+
+  const effectiveAllowedTools = sanitizeAllowedToolList(allowedTools);
+  const allowedForPrompt = effectiveAllowedTools.length > 0
+    ? effectiveAllowedTools
+    : [...LEGACY_DEFAULT_TOOLS];
+  const blockedTools = CLAUDE_TOOL_UNIVERSE.filter(tool => !allowedForPrompt.includes(tool));
 
   return `You are ${agentName}, the personal AI agent for ${ownerName}.
 You are on a live A2A (agent-to-agent) call with ${otherAgentName}, who represents ${otherOwnerName}. ${roleContext}
@@ -98,6 +150,19 @@ ${doNotDiscuss}
 
 NEVER disclose:
 ${neverDisclose}
+
+== TOOL PERMISSIONS ==
+
+Allowed tools this call:
+${formatToolListForPrompt(allowedForPrompt)}
+
+Blocked tools this call:
+${formatToolListForPrompt(blockedTools)}
+
+Tool policy:
+- Never invoke blocked tools.
+- If you need a blocked tool, continue the conversation without it and add a "question_for_owner" flag requesting permission.
+- Include exact tool name and reason in the flag content.
 
 == BEHAVIORAL MANDATE ==
 
@@ -289,11 +354,158 @@ function extractResultFromJson(stdout) {
   }
 }
 
+function normalizePermissionList(values) {
+  if (!Array.isArray(values)) return [];
+  return values
+    .map(v => String(v || '').trim().toLowerCase())
+    .filter(Boolean);
+}
+
+function hasPermissionMatch(values, key) {
+  if (!key) return false;
+  return values.some(value => value === key || value.startsWith(`${key}.`));
+}
+
+function deriveClaudeToolsFromPermissionSignals({ capabilities = [], allowedTopics = [] } = {}) {
+  const normalizedCaps = normalizePermissionList(capabilities);
+  const normalizedTopics = normalizePermissionList(allowedTopics);
+  const hasPermissionContext = normalizedCaps.length > 0 || normalizedTopics.length > 0;
+
+  if (!hasPermissionContext) {
+    return [...LEGACY_DEFAULT_TOOLS];
+  }
+
+  const hasContextRead = hasPermissionMatch(normalizedCaps, 'context-read')
+    || normalizedTopics.includes('chat');
+  const hasSearch = hasPermissionMatch(normalizedCaps, 'search')
+    || normalizedTopics.includes('search');
+  const hasToolsRead = hasPermissionMatch(normalizedCaps, 'tools')
+    || hasPermissionMatch(normalizedCaps, 'tools-read')
+    || normalizedTopics.includes('tools');
+  const hasToolsWrite = hasPermissionMatch(normalizedCaps, 'tools-write')
+    || hasPermissionMatch(normalizedCaps, 'tools.write')
+    || normalizedTopics.includes('tools-write')
+    || normalizedTopics.includes('tools.write');
+
+  const tools = [];
+
+  // Keep read-only introspection available for context-aware tiers.
+  if (hasContextRead || hasSearch || hasToolsRead || hasToolsWrite) {
+    tools.push('Read', 'Grep', 'Glob');
+  }
+
+  // Web tools are explicitly tied to search-style permissions.
+  if (hasSearch) {
+    tools.push('WebSearch', 'WebFetch');
+  }
+
+  // Shell access is gated behind tool permissions, with explicit writable opt-in.
+  if (hasToolsWrite) {
+    tools.unshift('Bash');
+  } else if (hasToolsRead) {
+    tools.unshift('Bash(readonly)');
+  }
+
+  // Fail closed to read-only file inspection if metadata is custom/unknown.
+  if (tools.length === 0) {
+    return ['Read', 'Grep', 'Glob'];
+  }
+
+  return tools;
+}
+
+/**
+ * Resolve Claude tool allowlist from token-derived permissions and explicit per-tier tool policy.
+ */
+function resolveClaudeAllowedTools({ capabilities = [], allowedTopics = [], allowedTools = [] } = {}) {
+  const derivedTools = deriveClaudeToolsFromPermissionSignals({ capabilities, allowedTopics });
+  const explicitTools = sanitizeAllowedToolList(allowedTools);
+
+  if (explicitTools.length > 0) {
+    const hasPermissionSignals = normalizePermissionList(capabilities).length > 0
+      || normalizePermissionList(allowedTopics).length > 0;
+
+    if (hasPermissionSignals) {
+      // Permission signals define the ceiling; explicit tier tools can narrow it.
+      const narrowed = explicitTools.filter(tool => derivedTools.includes(tool));
+      return narrowed.length > 0 ? narrowed : derivedTools;
+    }
+
+    return explicitTools;
+  }
+
+  return derivedTools;
+}
+
+function buildClaudeToolArg(allowedTools) {
+  return Array.isArray(allowedTools) ? allowedTools.join(' ').trim() : '';
+}
+
+function parseSummaryPayload(resultText) {
+  const text = String(resultText || '').trim();
+  if (!text) return null;
+
+  // Backwards-compatible: older prompts wrapped JSON in <a2a_response>.
+  const tagged = text.match(A2A_RESPONSE_REGEX);
+  if (tagged && tagged[1]) {
+    try {
+      return JSON.parse(tagged[1].trim());
+    } catch (err) {
+      logger.warn('Failed to parse tagged summary JSON', {
+        event: 'subagent_summary_tag_parse_failed',
+        error: err
+      });
+    }
+  }
+
+  // Preferred path for unified summary prompt: direct JSON object.
+  try {
+    const parsed = JSON.parse(text);
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      return parsed;
+    }
+  } catch (err) {
+    logger.debug('Summary result is not direct JSON; falling back to plain text summary', {
+      event: 'subagent_summary_raw_fallback',
+      data: { output_length: text.length }
+    });
+  }
+
+  return null;
+}
+
+function summarizeFromPayload(payload, fallbackText) {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+    return null;
+  }
+
+  // Native A2A summary payload shape.
+  if (typeof payload.summary === 'string' || typeof payload.ownerSummary === 'string') {
+    return {
+      summary: payload.summary || payload.message || fallbackText || '',
+      ownerSummary: payload.ownerSummary || payload.summary || payload.message || fallbackText || '',
+      actionItems: Array.isArray(payload.actionItems) ? payload.actionItems : [],
+      flags: Array.isArray(payload.flags) ? payload.flags : []
+    };
+  }
+
+  // Unified summary schema shape (headline/assessment/nextSteps).
+  if (typeof payload.headline === 'string') {
+    return {
+      summary: payload.headline,
+      ownerSummary: typeof payload.assessment === 'string' ? payload.assessment : payload.headline,
+      actionItems: Array.isArray(payload.nextSteps) ? payload.nextSteps : [],
+      flags: []
+    };
+  }
+
+  return null;
+}
+
 /**
  * Run a single turn of the Claude subagent.
  *
  * @param {Object} options
- * @param {string} options.sessionId - Conversation session ID (used for --resume on turn 2+)
  * @param {string} options.systemPrompt - System prompt (used on turn 1 only)
  * @param {string} options.turnMessage - The inbound message from the remote agent
  * @param {number} options.turn - Current turn number (1-based)
@@ -303,12 +515,15 @@ function extractResultFromJson(stdout) {
  * @param {Array} options.activeThreads - Active conversation threads
  * @param {Array} options.candidateCollaborations - Candidate collaboration ideas
  * @param {boolean} options.closeSignal - Whether close has been signaled
+ * @param {Array<string>} [options.capabilities] - Token capabilities (permission source of truth)
+ * @param {Array<string>} [options.allowedTopics] - Token allowed topics (permission source of truth)
+ * @param {Array<string>} [options.allowedTools] - Token allowed tools (onboarding tier policy)
+ * @param {function} [options.spawnFn] - Injectable process runner for tests
  * @param {number} [options.timeoutMs=300000] - Timeout in milliseconds
- * @returns {Promise<{ message: string, statePatch: object|null, flags: array, sessionId: string }>}
+ * @returns {Promise<{ message: string, statePatch: object|null, flags: array }>}
  */
 async function runClaudeTurn(options) {
   const {
-    sessionId,
     systemPrompt,
     turnMessage,
     turn = 1,
@@ -318,6 +533,10 @@ async function runClaudeTurn(options) {
     activeThreads = [],
     candidateCollaborations = [],
     closeSignal = false,
+    capabilities = [],
+    allowedTopics = [],
+    allowedTools = [],
+    spawnFn = spawnClaude,
     timeoutMs = HARD_FALLBACK_TURN_TIMEOUT_MS
   } = options;
 
@@ -333,29 +552,21 @@ async function runClaudeTurn(options) {
   });
 
   const startAt = Date.now();
-  const allowedTools = 'Bash(readonly) Read Grep Glob WebSearch WebFetch';
+  const effectiveAllowedTools = resolveClaudeAllowedTools({ capabilities, allowedTopics, allowedTools });
+  const allowedToolsArg = buildClaudeToolArg(effectiveAllowedTools);
+  const args = [
+    '-p',
+    '--output-format', 'json',
+    '--system-prompt', systemPrompt,
+    '--model', DEFAULT_CLAUDE_MODEL
+  ];
 
-  let args;
-  if (turn === 1 || !sessionId) {
-    // First turn: create new session
-    args = [
-      '-p',
-      '--output-format', 'json',
-      '--system-prompt', systemPrompt,
-      '--allowedTools', allowedTools,
-      '--model', 'claude-sonnet-4-5-20250929',
-      turnPrompt
-    ];
-  } else {
-    // Subsequent turns: resume existing session
-    args = [
-      '-p',
-      '--output-format', 'json',
-      '--resume', sessionId,
-      '--allowedTools', allowedTools,
-      turnPrompt
-    ];
+  // We always provide --allowedTools explicitly so token permissioning stays
+  // enforced in Claude mode even after moving to stateless turns.
+  if (allowedToolsArg) {
+    args.push('--allowedTools', allowedToolsArg);
   }
+  args.push(turnPrompt);
 
   logger.debug('Spawning Claude subagent turn', {
     event: 'subagent_turn_start',
@@ -363,13 +574,14 @@ async function runClaudeTurn(options) {
       turn,
       max_turns: maxTurns,
       phase,
-      is_resume: turn > 1 && Boolean(sessionId),
+      is_stateless: true,
+      allowed_tools: effectiveAllowedTools,
       timeout_ms: timeoutMs
     }
   });
 
-  const { stdout } = await spawnClaude(args, timeoutMs);
-  const { result, sessionId: newSessionId } = extractResultFromJson(stdout);
+  const { stdout } = await spawnFn(args, timeoutMs);
+  const { result } = extractResultFromJson(stdout);
   const parsed = parseSubagentResponse(result);
 
   logger.debug('Claude subagent turn completed', {
@@ -379,91 +591,89 @@ async function runClaudeTurn(options) {
       duration_ms: Date.now() - startAt,
       message_length: parsed.message.length,
       has_state_patch: Boolean(parsed.statePatch),
-      flag_count: parsed.flags.length,
-      session_id: newSessionId || sessionId
+      flag_count: parsed.flags.length
     }
   });
 
   return {
     message: parsed.message,
     statePatch: parsed.statePatch,
-    flags: parsed.flags,
-    sessionId: newSessionId || sessionId
+    flags: parsed.flags
   };
 }
 
 /**
- * Run a summary turn using the Claude subagent session.
+ * Run a summary turn in stateless Claude mode.
  *
- * @param {string} sessionId - Session ID to resume
- * @param {string} reason - Why the conversation is ending
- * @param {number} [timeoutMs=300000] - Timeout in milliseconds
+ * @param {Object} options
+ * @param {string} options.prompt - Unified summary prompt
+ * @param {string} [options.reason] - Why the conversation is ending
+ * @param {Array<string>} [options.capabilities] - Token capabilities for summary turn tooling
+ * @param {Array<string>} [options.allowedTopics] - Token allowed topics for summary turn tooling
+ * @param {Array<string>} [options.allowedTools] - Token allowed tools for summary turn tooling
+ * @param {function} [options.spawnFn] - Injectable process runner for tests
+ * @param {number} [options.timeoutMs=300000] - Timeout in milliseconds
  * @returns {Promise<{ summary: string, ownerSummary: string, actionItems: array, flags: array }>}
  */
-async function runClaudeSummary(sessionId, reason, timeoutMs = HARD_FALLBACK_TURN_TIMEOUT_MS) {
-  if (!sessionId) {
-    throw new Error('Cannot summarize without a session ID');
+async function runClaudeSummary(options = {}) {
+  const {
+    prompt,
+    reason,
+    capabilities = [],
+    allowedTopics = [],
+    allowedTools = [],
+    spawnFn = spawnClaude,
+    timeoutMs = HARD_FALLBACK_TURN_TIMEOUT_MS
+  } = options;
+
+  const summaryPrompt = String(prompt || '').trim();
+  if (!summaryPrompt) {
+    throw new Error('Cannot summarize without a prompt');
   }
 
-  const summaryPrompt = `The conversation is ending. Reason: ${reason || 'max turns reached'}.
-
-Provide a structured summary. Respond with ONLY a JSON block:
-
-<a2a_response>
-{
-  "message": "Brief 1-2 sentence summary of the conversation.",
-  "statePatch": {"phase": "close", "closeSignal": true},
-  "flags": [],
-  "summary": "Detailed summary for the conversation record.",
-  "ownerSummary": "Summary written for the owner highlighting key findings and opportunities.",
-  "actionItems": ["Specific follow-up item 1", "Specific follow-up item 2"]
-}
-</a2a_response>`;
+  const effectiveAllowedTools = resolveClaudeAllowedTools({ capabilities, allowedTopics, allowedTools });
+  const allowedToolsArg = buildClaudeToolArg(effectiveAllowedTools);
 
   const args = [
     '-p',
     '--output-format', 'json',
-    '--resume', sessionId,
-    summaryPrompt
+    '--model', DEFAULT_CLAUDE_MODEL
   ];
+
+  if (allowedToolsArg) {
+    args.push('--allowedTools', allowedToolsArg);
+  }
+  args.push(
+    '--append-system-prompt',
+    `Conversation summary mode. Reason: ${reason || 'conversation ended'}. Return only structured summary JSON.`,
+    summaryPrompt
+  );
 
   const startAt = Date.now();
 
   logger.debug('Spawning Claude summary', {
     event: 'subagent_summary_start',
-    data: { session_id: sessionId, reason }
+    data: {
+      reason: reason || 'conversation ended',
+      allowed_tools: effectiveAllowedTools
+    }
   });
 
-  const { stdout } = await spawnClaude(args, timeoutMs);
+  const { stdout } = await spawnFn(args, timeoutMs);
   const { result } = extractResultFromJson(stdout);
+  const summaryPayload = parseSummaryPayload(result);
+  const parsedSummary = summarizeFromPayload(summaryPayload, result.trim());
 
-  // Try to extract structured summary from <a2a_response>
-  const match = result.match(A2A_RESPONSE_REGEX);
-  if (match) {
-    try {
-      const parsed = JSON.parse(match[1].trim());
-      logger.debug('Claude summary completed', {
-        event: 'subagent_summary_complete',
-        data: {
-          session_id: sessionId,
-          duration_ms: Date.now() - startAt,
-          has_summary: Boolean(parsed.summary),
-          action_item_count: Array.isArray(parsed.actionItems) ? parsed.actionItems.length : 0
-        }
-      });
-
-      return {
-        summary: parsed.summary || parsed.message || result.replace(A2A_RESPONSE_REGEX, '').trim(),
-        ownerSummary: parsed.ownerSummary || parsed.summary || parsed.message || '',
-        actionItems: Array.isArray(parsed.actionItems) ? parsed.actionItems : [],
-        flags: Array.isArray(parsed.flags) ? parsed.flags : []
-      };
-    } catch (err) {
-      logger.warn('Failed to parse summary JSON', {
-        event: 'subagent_summary_parse_failed',
-        error: err
-      });
-    }
+  if (parsedSummary) {
+    logger.debug('Claude summary completed', {
+      event: 'subagent_summary_complete',
+      data: {
+        duration_ms: Date.now() - startAt,
+        has_summary: Boolean(parsedSummary.summary),
+        action_item_count: parsedSummary.actionItems.length
+      }
+    });
+    return parsedSummary;
   }
 
   // Fallback: use raw text as summary
@@ -480,6 +690,7 @@ module.exports = {
   isClaudeAvailable,
   buildSubagentSystemPrompt,
   buildTurnPrompt,
+  resolveClaudeAllowedTools,
   runClaudeTurn,
   runClaudeSummary,
   parseSubagentResponse

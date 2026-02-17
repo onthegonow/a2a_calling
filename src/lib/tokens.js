@@ -201,6 +201,7 @@ class TokenStore {
       // Snapshot of actual capabilities at creation time
       allowedTopics = null,  // Array of topic strings, e.g. ['chat', 'calendar.read']
       allowedGoals = null,   // Array of goal strings, e.g. ['grow-network', 'find-collaborators']
+      allowedTools = null,   // Array of tool names, e.g. ['Read', 'Grep', 'Glob']
       tierSettings = null,   // Object with tier-specific settings
       timeoutMs = null
     } = options;
@@ -246,6 +247,14 @@ class TokenStore {
       'custom': configTiers.custom?.goals || []
     };
 
+    // Default tool allowlist based on tier label (snapshot at creation).
+    const defaultTools = {
+      'public': configTiers.public?.allowed_tools || TokenStore.DEFAULT_ALLOWED_TOOLS.public,
+      'friends': configTiers.friends?.allowed_tools || TokenStore.DEFAULT_ALLOWED_TOOLS.friends,
+      'family': configTiers.family?.allowed_tools || TokenStore.DEFAULT_ALLOWED_TOOLS.family,
+      'custom': configTiers.custom?.allowed_tools || TokenStore.DEFAULT_ALLOWED_TOOLS.custom
+    };
+
     // Resolve capabilities: explicit > config > defaults
     const defaultCapabilities = (configTiers[tier]?.capabilities?.length)
       ? configTiers[tier].capabilities
@@ -261,6 +270,7 @@ class TokenStore {
       capabilities: capabilities || defaultCapabilities,
       allowed_topics: allowedTopics || defaultTopics[tier] || ['chat'],
       allowed_goals: allowedGoals || defaultGoals[tier] || [],
+      allowed_tools: allowedTools || defaultTools[tier] || TokenStore.DEFAULT_ALLOWED_TOOLS.public,
       timeout_ms: parsePositiveTimeoutMs(timeoutMs),
       tier_settings: tierSettings || {},  // Snapshot of settings at creation
       disclosure,
@@ -346,6 +356,7 @@ class TokenStore {
       capabilities,
       allowed_topics: record.allowed_topics || ['chat'],
       allowed_goals: record.allowed_goals || [],
+      allowed_tools: record.allowed_tools || TokenStore.DEFAULT_ALLOWED_TOOLS[tier] || TokenStore.DEFAULT_ALLOWED_TOOLS.public,
       timeout_ms: timeoutMs,
       tier_settings: record.tier_settings || {},
       disclosure: record.disclosure,
@@ -775,6 +786,13 @@ TokenStore.DEFAULT_CAPABILITIES = {
   'friends': ['context-read', 'calendar.read', 'email.read', 'search'],
   'family': ['context-read', 'calendar', 'email', 'search', 'tools', 'memory'],
   'custom': ['context-read']
+};
+
+TokenStore.DEFAULT_ALLOWED_TOOLS = {
+  'public': ['Read', 'Grep', 'Glob'],
+  'friends': ['Bash(readonly)', 'Read', 'Grep', 'Glob', 'WebSearch', 'WebFetch'],
+  'family': ['Bash', 'Read', 'Grep', 'Glob', 'WebSearch', 'WebFetch'],
+  'custom': ['Read', 'Grep', 'Glob']
 };
 
 module.exports = { TokenStore };

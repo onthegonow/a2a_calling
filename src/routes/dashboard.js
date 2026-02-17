@@ -170,16 +170,18 @@ function parseTopicObjects(values) {
   return cleaned;
 }
 
-function formatInviteMessage({ owner, agentName, inviteUrl, topics, goals, expiresText }) {
+function formatInviteMessage({ owner, agentName, inviteUrl, topics, goals, tools, expiresText }) {
   const ownerText = owner || 'Someone';
   const topicsList = topics.length > 0 ? topics.join(' · ') : 'chat';
   const goalsList = (goals || []).join(' · ');
+  const toolsList = (tools || []).join(' · ');
   const expirationLine = expiresText === 'never' ? '' : `\n⏰ ${expiresText}`;
   return `📞🗣️ **Agent-to-Agent Call Invite**
 
 👤 **${ownerText}** would like your agent to call **${agentName}** and explore where our owners might collaborate.
 
 💬 ${topicsList}${goalsList ? `\n🎯 ${goalsList}` : ''}
+${toolsList ? `\n🧰 ${toolsList}` : ''}
 
 ${inviteUrl}${expirationLine}
 
@@ -1271,6 +1273,7 @@ function createDashboardApiRouter(options = {}) {
         name: configTier.name || tierId,
         description: configTier.description || '',
         capabilities: configTier.capabilities || [],
+        allowed_tools: sanitizeStringArray(configTier.allowed_tools || [], 30, 80),
         topics: sanitizeStringArray(configTier.topics || []),
         goals: sanitizeStringArray(configTier.goals || []),
         disclosure: configTier.disclosure || 'minimal',
@@ -1309,6 +1312,7 @@ function createDashboardApiRouter(options = {}) {
     if (body.description !== undefined) update.description = sanitizeString(body.description, 300);
     if (body.disclosure !== undefined) update.disclosure = sanitizeString(body.disclosure, 40) || 'minimal';
     if (body.capabilities !== undefined) update.capabilities = sanitizeStringArray(body.capabilities, 100, 120);
+    if (body.allowed_tools !== undefined) update.allowed_tools = sanitizeStringArray(body.allowed_tools, 30, 80);
     if (body.examples !== undefined) update.examples = sanitizeStringArray(body.examples, 20, 120);
     if (body.topics !== undefined) update.topics = sanitizeStringArray(body.topics, 200, 160);
     if (body.goals !== undefined) update.goals = sanitizeStringArray(body.goals, 200, 160);
@@ -1368,6 +1372,7 @@ function createDashboardApiRouter(options = {}) {
           name: sanitizeString(body.name || tierId, 120),
           description: sanitizeString(body.description || 'Custom tier', 300),
           capabilities: sanitizeStringArray(body.capabilities || []),
+          allowed_tools: sanitizeStringArray(body.allowed_tools || [], 30, 80),
           topics: sanitizeStringArray(body.topics || []),
           goals: sanitizeStringArray(body.goals || []),
           disclosure: sanitizeString(body.disclosure || 'minimal', 40),
@@ -1464,6 +1469,7 @@ function createDashboardApiRouter(options = {}) {
 
     const allowedTopics = sanitizeStringArray(body.topics || tier.topics || []);
     const allowedGoals = sanitizeStringArray(body.goals || tier.goals || []);
+    const allowedTools = sanitizeStringArray(body.tools || body.allowed_tools || tier.allowed_tools || [], 30, 80);
     const { token, record } = context.tokenStore.create({
       name,
       owner,
@@ -1474,6 +1480,7 @@ function createDashboardApiRouter(options = {}) {
       maxCalls,
       allowedTopics: allowedTopics.length ? allowedTopics : null,
       allowedGoals: allowedGoals.length ? allowedGoals : null,
+      allowedTools: allowedTools.length ? allowedTools : null,
       tierSettings: {
         tierId,
         ...tier
@@ -1495,6 +1502,7 @@ function createDashboardApiRouter(options = {}) {
       inviteUrl,
       topics: record.allowed_topics || [],
       goals: record.allowed_goals || [],
+      tools: record.allowed_tools || [],
       expiresText
     });
 

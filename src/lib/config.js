@@ -125,6 +125,13 @@ function validateTierPatch(tierName, tierConfig) {
     });
   }
 
+  if (tierConfig.allowed_tools !== undefined) {
+    out.allowed_tools = validateStringArray(tierConfig.allowed_tools, `${tierName}.allowed_tools`, {
+      maxItems: 30,
+      itemMaxLength: 80
+    });
+  }
+
   if (tierConfig.topics !== undefined) {
     out.topics = validateStringArray(tierConfig.topics, `${tierName}.topics`, {
       maxItems: 200,
@@ -181,6 +188,7 @@ const DEFAULT_CONFIG = {
       name: 'Public',
       description: 'Basic networking - safe for anyone',
       capabilities: ['context-read'],
+      allowed_tools: ['Read', 'Grep', 'Glob'],
       topics: ['chat'],
       goals: [],
       disclosure: 'minimal',
@@ -190,6 +198,7 @@ const DEFAULT_CONFIG = {
       name: 'Friends',
       description: 'Most capabilities, no sensitive financial data',
       capabilities: ['context-read', 'calendar.read', 'email.read', 'search'],
+      allowed_tools: ['Bash(readonly)', 'Read', 'Grep', 'Glob', 'WebSearch', 'WebFetch'],
       topics: ['chat', 'search', 'openclaw', 'a2a'],
       goals: [],
       disclosure: 'public',
@@ -199,6 +208,7 @@ const DEFAULT_CONFIG = {
       name: 'Family',
       description: 'Full access - only for your inner circle',
       capabilities: ['context-read', 'calendar', 'email', 'search', 'tools', 'memory'],
+      allowed_tools: ['Bash', 'Read', 'Grep', 'Glob', 'WebSearch', 'WebFetch'],
       topics: ['chat', 'search', 'openclaw', 'a2a', 'tools', 'memory'],
       goals: [],
       disclosure: 'public',
@@ -208,6 +218,7 @@ const DEFAULT_CONFIG = {
       name: 'Custom',
       description: 'User-defined permissions',
       capabilities: ['context-read'],
+      allowed_tools: ['Read', 'Grep', 'Glob'],
       topics: [],
       goals: [],
       disclosure: 'minimal',

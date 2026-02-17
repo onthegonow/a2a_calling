@@ -621,12 +621,43 @@ async function callAgent(message, a2aContext) {
           conversationId,
           tier: tierInfo,
           ownerName: agentContext.owner,
+          capabilities: Array.isArray(a2aContext.capabilities) ? a2aContext.capabilities : [],
           allowedTopics: a2aContext.allowed_topics || [],
+          allowed_topics: a2aContext.allowed_topics || [],
+          allowedGoals: a2aContext.allowed_goals || [],
+          allowed_goals: a2aContext.allowed_goals || [],
+          allowedTools: a2aContext.allowed_tools || [],
+          allowed_tools: a2aContext.allowed_tools || [],
           timeoutMs: runtime.mode === 'claude' ? claudeTurnTimeoutMs : 65000,
           traceId,
           requestId
         }
       });
+
+    // Claude mode returns structured metadata (statePatch + flags) via side channel.
+    // We persist owner-facing flags so permission questions (e.g. blocked tool requests)
+    // are visible in call history even though the remote only sees conversational text.
+    const turnMeta = runtime.mode === 'claude' && typeof runtime.getLastTurnMeta === 'function'
+      ? runtime.getLastTurnMeta(sessionId)
+      : null;
+    if (turnMeta?.flags?.length > 0) {
+      const convStoreForFlags = getServerConvStore();
+      if (convStoreForFlags) {
+        try {
+          convStoreForFlags.addMessage(conversationId, {
+            direction: 'outbound',
+            role: 'system',
+            content: `[flags] ${turnMeta.flags.map(f => f.content || f.type).join('; ')}`,
+            metadata: JSON.stringify({ flags: turnMeta.flags, phase: collabState.phase })
+          });
+        } catch (err) {
+          callLogger.warn('Failed to persist owner flags for turn', {
+            event: 'call_turn_flags_persist_failed',
+            error: err
+          });
+        }
+      }
+    }
 
     if (collabMode !== 'adaptive') {
       return rawResponse;
@@ -637,7 +668,17 @@ async function callAgent(message, a2aContext) {
     const beforeTurn = collabState.turnCount;
     let usedMetadata = false;
 
-    if (parsed.hasState && parsed.statePatch) {
+    // Prefer explicit Claude metadata side channel in claude mode.
+    if (turnMeta?.statePatch) {
+      usedMetadata = applyCollaborationPatch(collabState, turnMeta.statePatch);
+      if (!usedMetadata) {
+        callLogger.warn('Invalid collaboration patch; applying fallback heuristics', {
+          event: 'collaboration_patch_invalid',
+          error_code: 'COLLABORATION_PATCH_INVALID',
+          hint: 'Ensure assistant emits valid collaboration metadata JSON block.'
+        });
+      }
+    } else if (parsed.hasState && parsed.statePatch) {
       usedMetadata = applyCollaborationPatch(collabState, parsed.statePatch);
       if (!usedMetadata) {
         callLogger.warn('Invalid collaboration patch; applying fallback heuristics', {
@@ -770,8 +811,9 @@ async function generateSummary(messages, callerInfo) {
   });
 
   try {
+    const summarySessionId = conversationId ? `a2a-${conversationId}` : `summary-${Date.now()}`;
     return await runtime.summarize({
-      sessionId: `summary-${Date.now()}`,
+      sessionId: summarySessionId,
       prompt,
       messages,
       callerInfo,

@@ -12,7 +12,12 @@
 
 const { execSync, spawnSync } = require('child_process');
 const { createLogger } = require('./logger');
-const { runClaudeTurn: invokeClaudeTurn, buildSubagentSystemPrompt, runClaudeSummary } = require('./claude-subagent');
+const {
+  runClaudeTurn: invokeClaudeTurn,
+  buildSubagentSystemPrompt,
+  runClaudeSummary,
+  resolveClaudeAllowedTools
+} = require('./claude-subagent');
 const { getTopicsForTier, formatTopicsForPrompt, loadManifest } = require('./disclosure');
 const { HARD_FALLBACK_TURN_TIMEOUT_MS } = require('./turn-timeout');
 
@@ -149,7 +154,9 @@ function createRuntimeAdapter(options = {}) {
     }
   });
 
-  // Claude subagent session tracking
+  // Claude state tracking.
+  // Design decision (A2A-29): we keep per-conversation state for prompt/metadata
+  // continuity, but Claude execution itself is stateless (no `--resume`).
   const claudeSessions = new Map();
 
   async function runClaudeTurnAdapter({ sessionId, message, caller, context, timeoutMs }) {
@@ -166,7 +173,29 @@ function createRuntimeAdapter(options = {}) {
       const tierTopics = getTopicsForTier(context?.tier || 'public');
       const formatted = formatTopicsForPrompt(tierTopics);
 
-      const systemPrompt = buildSubagentSystemPrompt({
+      session = {
+        systemPrompt: '',
+        turnCount: 0,
+        lastMeta: null,
+        // Keep a permission snapshot so summary runs with the same policy envelope.
+        permissionSnapshot: {
+          capabilities: Array.isArray(context?.capabilities) ? context.capabilities : [],
+          allowedTopics: Array.isArray(context?.allowedTopics || context?.allowed_topics)
+            ? (context?.allowedTopics || context?.allowed_topics)
+            : [],
+          allowedTools: Array.isArray(context?.allowedTools || context?.allowed_tools)
+            ? (context?.allowedTools || context?.allowed_tools)
+            : []
+        }
+      };
+
+      const sessionAllowedTools = resolveClaudeAllowedTools({
+        capabilities: session.permissionSnapshot.capabilities,
+        allowedTopics: session.permissionSnapshot.allowedTopics,
+        allowedTools: session.permissionSnapshot.allowedTools
+      });
+
+      session.systemPrompt = buildSubagentSystemPrompt({
         agentName: context?.agentName || 'Agent',
         ownerName: context?.ownerName || 'the owner',
         otherAgentName: caller?.name || 'Remote Agent',
@@ -177,10 +206,10 @@ function createRuntimeAdapter(options = {}) {
         doNotDiscuss: formatted.doNotDiscuss,
         neverDisclose: formatted.neverDisclose,
         personalityNotes: manifest.personality_notes || '',
-        roleContext: context?.roleContext || ''
+        roleContext: context?.roleContext || '',
+        allowedTools: sessionAllowedTools
       });
 
-      session = { claudeSessionId: null, systemPrompt, turnCount: 0, lastMeta: null };
       claudeSessions.set(sessionId, session);
     }
 
@@ -199,7 +228,6 @@ function createRuntimeAdapter(options = {}) {
     });
 
     const result = await invokeClaudeTurn({
-      sessionId: session.claudeSessionId,
       systemPrompt: session.systemPrompt,
       turnMessage: message,
       turn: session.turnCount,
@@ -209,12 +237,27 @@ function createRuntimeAdapter(options = {}) {
       activeThreads: context?.activeThreads || [],
       candidateCollaborations: context?.candidateCollaborations || [],
       closeSignal: context?.closeSignal || false,
+      capabilities: Array.isArray(context?.capabilities)
+        ? context.capabilities
+        : (session.permissionSnapshot?.capabilities || []),
+      allowedTopics: Array.isArray(context?.allowedTopics || context?.allowed_topics)
+        ? (context?.allowedTopics || context?.allowed_topics)
+        : (session.permissionSnapshot?.allowedTopics || []),
+      allowedTools: Array.isArray(context?.allowedTools || context?.allowed_tools)
+        ? (context?.allowedTools || context?.allowed_tools)
+        : (session.permissionSnapshot?.allowedTools || []),
       timeoutMs: timeoutMs || HARD_FALLBACK_TURN_TIMEOUT_MS
     });
 
-    // Store session ID from first turn for subsequent --resume
-    if (result.sessionId) {
-      session.claudeSessionId = result.sessionId;
+    // Update permission snapshot if the caller supplied explicit context this turn.
+    if (Array.isArray(context?.capabilities)) {
+      session.permissionSnapshot.capabilities = context.capabilities;
+    }
+    if (Array.isArray(context?.allowedTopics || context?.allowed_topics)) {
+      session.permissionSnapshot.allowedTopics = context?.allowedTopics || context?.allowed_topics;
+    }
+    if (Array.isArray(context?.allowedTools || context?.allowed_tools)) {
+      session.permissionSnapshot.allowedTools = context?.allowedTools || context?.allowed_tools;
     }
 
     // Store flags/state for retrieval via getLastTurnMeta
@@ -385,20 +428,33 @@ function createRuntimeAdapter(options = {}) {
     const requestId = callerInfo?.request_id || callerInfo?.requestId;
     const effectiveConversationId = conversationId || callerInfo?.conversation_id || callerInfo?.conversationId;
 
-    // Claude mode: use the subagent session for summarization
+    // Claude mode: stateless summary invocation (no session restore dependency).
     if (modeInfo.mode === 'claude') {
       const session = claudeSessions.get(sessionId);
-      if (session?.claudeSessionId) {
-        const result = await runClaudeSummary(
-          session.claudeSessionId,
-          'conversation ended',
-          timeoutMs || HARD_FALLBACK_TURN_TIMEOUT_MS
-        );
-        if (result && result.summary) {
-          return result;
-        }
+      const capabilities = session?.permissionSnapshot?.capabilities
+        || callerInfo?.capabilities
+        || [];
+      const allowedTopics = session?.permissionSnapshot?.allowedTopics
+        || callerInfo?.allowedTopics
+        || callerInfo?.allowed_topics
+        || [];
+      const allowedTools = session?.permissionSnapshot?.allowedTools
+        || callerInfo?.allowedTools
+        || callerInfo?.allowed_tools
+        || [];
+
+      const result = await runClaudeSummary({
+        prompt,
+        reason: 'conversation ended',
+        capabilities,
+        allowedTopics,
+        allowedTools,
+        timeoutMs: timeoutMs || HARD_FALLBACK_TURN_TIMEOUT_MS
+      });
+      if (result && result.summary) {
+        return result;
       }
-      throw new Error('Claude summary session not available or returned empty result');
+      throw new Error('Claude summary returned empty result');
     }
 
     if (modeInfo.mode !== 'openclaw') {

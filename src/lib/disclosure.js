@@ -18,6 +18,17 @@ const MANIFEST_FILE = path.join(CONFIG_DIR, 'a2a-disclosure.json');
 const TIER_HIERARCHY = ['public', 'friends', 'family'];
 const logger = createLogger({ component: 'a2a.disclosure' });
 const SKIP_FILES = new Set(['heartbeat', 'skill', 'claude']);
+const CANONICAL_TOOL_NAMES = ['Bash', 'Bash(readonly)', 'Read', 'Grep', 'Glob', 'WebSearch', 'WebFetch'];
+const TOOL_NAME_MAP = {
+  bash: 'Bash',
+  'bash(readonly)': 'Bash(readonly)',
+  'bash-readonly': 'Bash(readonly)',
+  read: 'Read',
+  grep: 'Grep',
+  glob: 'Glob',
+  websearch: 'WebSearch',
+  webfetch: 'WebFetch'
+};
 
 function normalizeTopic(raw) {
   return String(raw || '').trim();
@@ -66,6 +77,26 @@ function dedupeDoNotDiscuss(items) {
     });
   }
   return out;
+}
+
+function dedupeStringList(items, maxLength = 80) {
+  if (!Array.isArray(items)) return [];
+  const seen = new Set();
+  const out = [];
+  for (const item of items) {
+    const normalized = normalizeTopic(item).slice(0, maxLength);
+    if (!normalized) continue;
+    const key = normalized.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(normalized);
+  }
+  return out;
+}
+
+function normalizeToolName(value) {
+  const key = normalizeTopic(value).toLowerCase();
+  return TOOL_NAME_MAP[key] || null;
 }
 
 function parseTopicLine(rawLine) {
@@ -148,7 +179,7 @@ function saveManifest(manifest) {
  * Get topics for a given tier, merged down the hierarchy.
  * family gets everything, friends gets friends+public, public gets public only.
  *
- * Returns { topics, objectives, do_not_discuss, never_disclose }
+ * Returns { topics, objectives, do_not_discuss, never_disclose, allowed_tools }
  */
 function getTopicsForTier(tier) {
   const manifest = loadManifest();
@@ -167,7 +198,8 @@ function getTopicsForTier(tier) {
     topics: [],
     objectives: [],
     do_not_discuss: [],
-    never_disclose: manifest.never_disclose || []
+    never_disclose: manifest.never_disclose || [],
+    allowed_tools: []
   };
 
   for (const t of tiersToMerge) {
@@ -175,6 +207,7 @@ function getTopicsForTier(tier) {
     if (tierData.topics) merged.topics.push(...tierData.topics);
     if (tierData.objectives) merged.objectives.push(...tierData.objectives);
     if (tierData.do_not_discuss) merged.do_not_discuss.push(...tierData.do_not_discuss);
+    if (tierData.allowed_tools) merged.allowed_tools.push(...tierData.allowed_tools);
   }
 
   // Remove do_not_discuss items that appear in topics (higher tiers promote them)
@@ -185,6 +218,7 @@ function getTopicsForTier(tier) {
   merged.topics = dedupeByTopic(merged.topics);
   merged.objectives = dedupeByObjective(merged.objectives);
   merged.do_not_discuss = dedupeDoNotDiscuss(merged.do_not_discuss);
+  merged.allowed_tools = dedupeStringList(merged.allowed_tools, 80);
 
   return merged;
 }
@@ -212,6 +246,9 @@ function formatTopicsForPrompt(tierTopics) {
     topics: formatTopicList(tierTopics.topics),
     objectives: formatObjectiveList(tierTopics.objectives),
     doNotDiscuss: formatDoNotDiscuss(tierTopics.do_not_discuss),
+    allowedTools: tierTopics.allowed_tools?.length
+      ? tierTopics.allowed_tools.map(item => `  - ${item}`).join('\n')
+      : '  (none specified)',
     neverDisclose: tierTopics.never_disclose?.length
       ? tierTopics.never_disclose.map(item => `  - ${item}`).join('\n')
       : '  (none specified)'
@@ -274,10 +311,11 @@ function generateDefaultManifest(contextFiles = {}) {
         public: {
           topics: [{ topic: 'What I do', description: 'Brief professional description' }],
           objectives: [{ objective: 'Networking', description: 'Connect with others in the field' }],
-          do_not_discuss: [{ topic: 'Personal details', reason: 'Redirect to direct owner contact' }]
+          do_not_discuss: [{ topic: 'Personal details', reason: 'Redirect to direct owner contact' }],
+          allowed_tools: ['Read', 'Grep', 'Glob']
         },
-        friends: { topics: [], objectives: [], do_not_discuss: [] },
-        family: { topics: [], objectives: [], do_not_discuss: [] }
+        friends: { topics: [], objectives: [], do_not_discuss: [], allowed_tools: ['Bash(readonly)', 'Read', 'Grep', 'Glob', 'WebSearch', 'WebFetch'] },
+        family: { topics: [], objectives: [], do_not_discuss: [], allowed_tools: ['Bash', 'Read', 'Grep', 'Glob', 'WebSearch', 'WebFetch'] }
       },
       never_disclose: ['API keys', 'Other users\' data', 'Financial figures'],
       personality_notes: 'Direct and technical. Prefers depth over breadth.'
@@ -321,17 +359,20 @@ function generateDefaultManifest(contextFiles = {}) {
         objectives: publicObjectives.length > 0 ? publicObjectives : [
           { objective: 'Grow network', description: 'Connect with others working on similar problems' }
         ],
-        do_not_discuss: [{ topic: 'Personal details', reason: 'Redirect to direct owner contact' }]
+        do_not_discuss: [{ topic: 'Personal details', reason: 'Redirect to direct owner contact' }],
+        allowed_tools: ['Read', 'Grep', 'Glob']
       },
       friends: {
         topics: friendsTopics,
         objectives: friendsObjectives,
-        do_not_discuss: []
+        do_not_discuss: [],
+        allowed_tools: ['Bash(readonly)', 'Read', 'Grep', 'Glob', 'WebSearch', 'WebFetch']
       },
       family: {
         topics: familyTopics,
         objectives: [],
-        do_not_discuss: []
+        do_not_discuss: [],
+        allowed_tools: ['Bash', 'Read', 'Grep', 'Glob', 'WebSearch', 'WebFetch']
       }
     },
     never_disclose: ['API keys', 'Other users\' data', 'Financial figures'],
@@ -385,7 +426,7 @@ function validateDisclosureSubmission(data) {
     errors.push(`Unknown tiers: ${extraTiers.join(', ')} — only public, friends, family are allowed`);
   }
 
-  const LIST_LIMITS = { topics: 15, objectives: 8, do_not_discuss: 10 };
+  const LIST_LIMITS = { topics: 15, objectives: 8, do_not_discuss: 10, allowed_tools: 12 };
 
   for (const tier of TIER_HIERARCHY) {
     const tierData = tiersData[tier];
@@ -455,6 +496,28 @@ function validateDisclosureSubmission(data) {
         }
       }
     }
+
+    // Validate allowed_tools array
+    if (tierData.allowed_tools !== undefined) {
+      if (!Array.isArray(tierData.allowed_tools)) {
+        errors.push(`tiers.${tier}.allowed_tools must be an array`);
+      } else {
+        if (tierData.allowed_tools.length > LIST_LIMITS.allowed_tools) {
+          errors.push(`tiers.${tier}.allowed_tools has ${tierData.allowed_tools.length} items — max ${LIST_LIMITS.allowed_tools}`);
+        }
+        for (let i = 0; i < tierData.allowed_tools.length; i++) {
+          const raw = tierData.allowed_tools[i];
+          if (typeof raw !== 'string') {
+            errors.push(`tiers.${tier}.allowed_tools[${i}] must be a string`);
+            continue;
+          }
+          const canonical = normalizeToolName(raw);
+          if (!canonical) {
+            errors.push(`tiers.${tier}.allowed_tools[${i}] invalid tool "${raw}" (allowed: ${CANONICAL_TOOL_NAMES.join(', ')})`);
+          }
+        }
+      }
+    }
   }
 
   // Validate never_disclose (optional, defaults to sensible list)
@@ -506,7 +569,11 @@ function validateDisclosureSubmission(data) {
       do_not_discuss: (tiersData[tier].do_not_discuss || []).map(item => ({
         topic: item.topic,
         reason: item.reason || ''
-      }))
+      })),
+      allowed_tools: dedupeStringList(
+        (tiersData[tier].allowed_tools || []).map(tool => normalizeToolName(tool)).filter(Boolean),
+        80
+      )
     };
   }
 
@@ -620,17 +687,20 @@ Use ALL available context to build a reasonable disclosure profile. If truly not
       ],
       "do_not_discuss": [
         { "topic": "Topic to avoid", "reason": "Why this should be redirected" }
-      ]
+      ],
+      "allowed_tools": ["Read", "Grep", "Glob"]
     },
     "friends": {
       "topics": [],
       "objectives": [],
-      "do_not_discuss": []
+      "do_not_discuss": [],
+      "allowed_tools": ["Bash(readonly)", "Read", "Grep", "Glob", "WebSearch", "WebFetch"]
     },
     "family": {
       "topics": [],
       "objectives": [],
-      "do_not_discuss": []
+      "do_not_discuss": [],
+      "allowed_tools": ["Bash", "Read", "Grep", "Glob", "WebSearch", "WebFetch"]
     }
   },
   "never_disclose": ["API keys", "Credentials", "Financial figures"],
@@ -672,6 +742,12 @@ Family callers see everything. Friends see friends + public. Public callers see 
 - Personal matters (for public tier)
 - Sensitive subjects
 - Max 3 per tier
+
+**allowed_tools** — Tools this tier can use during calls:
+- Choose only the minimum tools needed for that tier's topics/objectives
+- Use exact tool names: Bash, Bash(readonly), Read, Grep, Glob, WebSearch, WebFetch
+- Public should usually stay read-only
+- Family can include broader tooling when justified
 
 Also identify:
 - **never_disclose** — information that should NEVER be shared regardless of tier (API keys, credentials, financial data, etc.)

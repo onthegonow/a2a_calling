@@ -347,6 +347,8 @@ function createRoutes(options = {}) {
       tier: validation.tier,
       capabilities: validation.capabilities,
       allowed_topics: validation.allowed_topics,
+      allowed_goals: validation.allowed_goals,
+      allowed_tools: validation.allowed_tools,
       timeout_ms: validation.timeout_ms,
       disclosure: validation.disclosure,
       caller: sanitizedCaller,
@@ -390,6 +392,11 @@ function createRoutes(options = {}) {
         if (monitor) {
           monitor.trackActivity(a2aContext.conversation_id, {
             ...sanitizedCaller,
+            tier: validation.tier,
+            capabilities: validation.capabilities,
+            allowed_topics: validation.allowed_topics,
+            allowed_goals: validation.allowed_goals,
+            allowed_tools: validation.allowed_tools,
             trace_id: traceId,
             request_id: requestId
           });

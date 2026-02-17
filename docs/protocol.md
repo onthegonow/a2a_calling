@@ -155,11 +155,11 @@ Example filters for `/logs`: `trace_id`, `conversation_id`, `token_id`, `error_c
 
 ## Permission Tiers
 
-| Tier | Default capabilities |
-|------|----------------------|
-| `public` | `context-read` |
-| `friends` | `context-read`, `calendar.read`, `email.read`, `search` |
-| `family` | `context-read`, `calendar`, `email`, `search`, `tools`, `memory` |
+| Tier | Default capabilities | Default `allowed_tools` |
+|------|----------------------|--------------------------|
+| `public` | `context-read` | `Read`, `Grep`, `Glob` |
+| `friends` | `context-read`, `calendar.read`, `email.read`, `search` | `Bash(readonly)`, `Read`, `Grep`, `Glob`, `WebSearch`, `WebFetch` |
+| `family` | `context-read`, `calendar`, `email`, `search`, `tools`, `memory` | `Bash`, `Read`, `Grep`, `Glob`, `WebSearch`, `WebFetch` |
 
 ## Disclosure Levels
 
@@ -184,6 +184,7 @@ Stored in `~/.config/openclaw/a2a.json`:
       "capabilities": ["context-read"],
       "allowed_topics": ["chat"],
       "allowed_goals": [],
+      "allowed_tools": ["Read", "Grep", "Glob"],
       "tier_settings": {},
       "disclosure": "minimal",
       "notify": "all",

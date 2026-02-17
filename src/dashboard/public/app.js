@@ -1056,6 +1056,7 @@ function renderTierEditor(tierId) {
   document.getElementById('tier-name').value = tier.name || tier.id;
   document.getElementById('tier-description').value = tier.description || '';
   document.getElementById('tier-disclosure').value = tier.disclosure || 'minimal';
+  document.getElementById('tier-tools').value = toLines(tier.allowed_tools || []);
   document.getElementById('tier-topics').value = toLines(tier.topics || []);
   document.getElementById('tier-goals').value = toLines(tier.goals || []);
 }
@@ -1072,6 +1073,7 @@ function bindSettingsActions() {
       name: document.getElementById('tier-name').value,
       description: document.getElementById('tier-description').value,
       disclosure: document.getElementById('tier-disclosure').value,
+      allowed_tools: fromLines(document.getElementById('tier-tools').value),
       topics: fromLines(document.getElementById('tier-topics').value),
       goals: fromLines(document.getElementById('tier-goals').value)
     };

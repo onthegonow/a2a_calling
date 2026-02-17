@@ -11,6 +11,9 @@ module.exports = function (test, assert) {
     isClaudeAvailable,
     buildSubagentSystemPrompt,
     buildTurnPrompt,
+    resolveClaudeAllowedTools,
+    runClaudeTurn,
+    runClaudeSummary,
     parseSubagentResponse
   } = require('../../src/lib/claude-subagent');
 
@@ -87,6 +90,20 @@ module.exports = function (test, assert) {
     assert.includes(prompt, 'COLLABORATING');
   });
 
+  test('buildSubagentSystemPrompt includes tool policy and owner permission escalation instructions', () => {
+    const prompt = buildSubagentSystemPrompt({
+      agentName: 'TestBot',
+      ownerName: 'Alice',
+      allowedTools: ['Read', 'Grep', 'Glob']
+    });
+
+    assert.includes(prompt, 'TOOL PERMISSIONS');
+    assert.includes(prompt, 'Allowed tools this call');
+    assert.includes(prompt, 'Blocked tools this call');
+    assert.includes(prompt, 'question_for_owner');
+    assert.includes(prompt, 'Never invoke blocked tools');
+  });
+
   test('buildSubagentSystemPrompt includes phase awareness', () => {
     const prompt = buildSubagentSystemPrompt({
       agentName: 'TestBot',
@@ -155,6 +172,131 @@ module.exports = function (test, assert) {
     assert.includes(prompt, 'Joint paper');
     assert.includes(prompt, 'Hello from remote!');
     assert.includes(prompt, 'Close signal: false');
+  });
+
+  // ── Permission-Derived Tooling ─────────────────────────────
+
+  test('resolveClaudeAllowedTools uses legacy defaults when no permission context is present', () => {
+    const tools = resolveClaudeAllowedTools();
+    assert.includes(tools, 'Bash(readonly)');
+    assert.includes(tools, 'Read');
+    assert.includes(tools, 'WebSearch');
+    assert.includes(tools, 'WebFetch');
+  });
+
+  test('resolveClaudeAllowedTools gates web tools behind search capability', () => {
+    const noSearch = resolveClaudeAllowedTools({
+      capabilities: ['context-read'],
+      allowedTopics: ['chat']
+    });
+    assert.includes(noSearch, 'Read');
+    assert.equal(noSearch.includes('WebSearch'), false);
+    assert.equal(noSearch.includes('WebFetch'), false);
+
+    const withSearch = resolveClaudeAllowedTools({
+      capabilities: ['context-read', 'search'],
+      allowedTopics: ['chat']
+    });
+    assert.includes(withSearch, 'WebSearch');
+    assert.includes(withSearch, 'WebFetch');
+  });
+
+  test('resolveClaudeAllowedTools uses writable bash only with tools-write permission', () => {
+    const readOnly = resolveClaudeAllowedTools({
+      capabilities: ['tools'],
+      allowedTopics: ['tools']
+    });
+    assert.includes(readOnly, 'Bash(readonly)');
+    assert.equal(readOnly.includes('Bash'), false);
+
+    const writable = resolveClaudeAllowedTools({
+      capabilities: ['tools-write'],
+      allowedTopics: ['tools.write']
+    });
+    assert.includes(writable, 'Bash');
+    assert.equal(writable.includes('Bash(readonly)'), false);
+  });
+
+  test('resolveClaudeAllowedTools applies explicit tier allowlist as a narrowing constraint', () => {
+    const tools = resolveClaudeAllowedTools({
+      capabilities: ['context-read', 'search', 'tools-write'],
+      allowedTopics: ['chat', 'search', 'tools'],
+      allowedTools: ['Read', 'Grep', 'Glob']
+    });
+
+    assert.deepEqual(tools, ['Read', 'Grep', 'Glob']);
+    assert.equal(tools.includes('Bash'), false);
+    assert.equal(tools.includes('WebSearch'), false);
+  });
+
+  test('runClaudeTurn builds stateless args and applies permission-derived allowlist', async () => {
+    const captures = [];
+    const stubSpawn = async (args) => {
+      captures.push(args);
+      return {
+        stdout: JSON.stringify({
+          result: `Plain reply\n<a2a_response>{"message":"Plain reply","statePatch":{"phase":"exploring"},"flags":[]}</a2a_response>`
+        }),
+        stderr: ''
+      };
+    };
+
+    const result = await runClaudeTurn({
+      systemPrompt: 'System prompt',
+      turnMessage: 'Hello there',
+      turn: 2,
+      maxTurns: 6,
+      capabilities: ['context-read', 'search'],
+      allowedTopics: ['chat', 'search'],
+      spawnFn: stubSpawn,
+      timeoutMs: 1000
+    });
+
+    assert.equal(result.message, 'Plain reply');
+    assert.equal(result.statePatch.phase, 'exploring');
+    assert.equal(captures.length, 1);
+
+    const args = captures[0];
+    assert.equal(args.includes('--resume'), false);
+    assert.includes(args, '--system-prompt');
+    assert.includes(args, '--model');
+    assert.includes(args, '--allowedTools');
+    const toolsArg = args[args.indexOf('--allowedTools') + 1];
+    assert.includes(toolsArg, 'Read');
+    assert.includes(toolsArg, 'WebSearch');
+    assert.includes(toolsArg, 'WebFetch');
+  });
+
+  test('runClaudeSummary parses unified schema JSON without session resume', async () => {
+    const captures = [];
+    const stubSpawn = async (args) => {
+      captures.push(args);
+      return {
+        stdout: JSON.stringify({
+          result: JSON.stringify({
+            headline: 'Strong strategic fit',
+            assessment: 'Worth immediate follow-up',
+            nextSteps: ['Schedule owner intro']
+          })
+        }),
+        stderr: ''
+      };
+    };
+
+    const result = await runClaudeSummary({
+      prompt: 'Summarize this transcript as JSON',
+      reason: 'idle_timeout',
+      capabilities: ['context-read'],
+      allowedTopics: ['chat'],
+      spawnFn: stubSpawn,
+      timeoutMs: 1000
+    });
+
+    assert.equal(result.summary, 'Strong strategic fit');
+    assert.equal(result.ownerSummary, 'Worth immediate follow-up');
+    assert.deepEqual(result.actionItems, ['Schedule owner intro']);
+    assert.equal(captures.length, 1);
+    assert.equal(captures[0].includes('--resume'), false);
   });
 
   // ── parseSubagentResponse ──────────────────────────────────
