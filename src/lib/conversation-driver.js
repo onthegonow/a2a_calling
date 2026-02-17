@@ -22,6 +22,7 @@ const {
 const { getTopicsForTier, formatTopicsForPrompt, loadManifest } = require('./disclosure');
 const { createLogger } = require('./logger');
 const { buildUnifiedSummaryPrompt } = require('./summary-prompt');
+const { resolveTokenTimeoutMs, resolveTurnTimeoutMs } = require('./turn-timeout');
 
 const logger = createLogger({ component: 'a2a.conversation-driver' });
 
@@ -130,9 +131,16 @@ class ConversationDriver {
     this.summarizer = options.summarizer || null;
     this.ownerContext = options.ownerContext || {};
     this.claudeMode = options.runtime?.mode === 'claude';
-    this.claudeTimeoutMs = options.claudeTimeoutMs || 180000;
 
-    const clientTimeout = this.claudeMode ? 200000 : 65000;
+    const tokenTimeoutMs = options.tokenTimeoutMs
+      || options.claudeTimeoutMs
+      || resolveTokenTimeoutMs(options.token);
+    const configTimeoutMs = options.configTurnTimeoutMs;
+    this.claudeTimeoutMs = resolveTurnTimeoutMs({ tokenTimeoutMs, configTimeoutMs });
+
+    const clientTimeout = this.claudeMode
+      ? Math.max(this.claudeTimeoutMs + 20000, 200000)
+      : 65000;
     this.client = new A2AClient({ caller: this.caller, timeout: clientTimeout });
   }
 
@@ -221,7 +229,8 @@ class ConversationDriver {
             sessionId: `summary-${Date.now()}`,
             prompt,
             messages,
-            callerInfo: { name: agentContext.name, owner: agentContext.owner }
+            callerInfo: { name: agentContext.name, owner: agentContext.owner },
+            timeoutMs: this.claudeMode ? this.claudeTimeoutMs : 35000
           });
         } catch (err) {
           logger.warn('Runtime summarizer failed, using default', {

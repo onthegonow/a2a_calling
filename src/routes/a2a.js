@@ -340,6 +340,7 @@ function createRoutes(options = {}) {
       tier: validation.tier,
       capabilities: validation.capabilities,
       allowed_topics: validation.allowed_topics,
+      timeout_ms: validation.timeout_ms,
       disclosure: validation.disclosure,
       caller: sanitizedCaller,
       conversation_id: conversation_id || `conv_${Date.now()}_${crypto.randomBytes(6).toString('hex')}`,

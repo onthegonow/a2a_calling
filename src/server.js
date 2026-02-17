@@ -27,6 +27,7 @@ const { buildUnifiedSummaryPrompt } = require('./lib/summary-prompt');
 const { A2AConfig } = require('./lib/config');
 const { UpdateManager } = require('./lib/update-manager');
 const { spawn } = require('child_process');
+const { resolveTurnTimeoutMs } = require('./lib/turn-timeout');
 
 const DEFAULT_PORTS = [80, 3001, 8080, 8443, 9001];
 const requestedPort = process.env.PORT ? parseInt(process.env.PORT, 10)
@@ -118,6 +119,15 @@ if (runtime.warning) {
 function readPositiveIntEnv(name, fallback) {
   const parsed = Number.parseInt(process.env[name] || '', 10);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function resolveConfiguredTurnTimeoutMs() {
+  try {
+    const defaults = config.getDefaults?.() || {};
+    return defaults.turnTimeoutMs ?? defaults.turn_timeout_ms ?? null;
+  } catch (err) {
+    return null;
+  }
 }
 
 function resolveCollabMode() {
@@ -583,6 +593,10 @@ async function callAgent(message, a2aContext) {
     : buildConnectionPrompt(promptOptions);
 
   const sessionId = `a2a-${conversationId}`;
+  const claudeTurnTimeoutMs = resolveTurnTimeoutMs({
+    tokenTimeoutMs: a2aContext.timeout_ms,
+    configTimeoutMs: resolveConfiguredTurnTimeoutMs()
+  });
   
   try {
     callLogger.info('Handling inbound call turn', {
@@ -600,12 +614,13 @@ async function callAgent(message, a2aContext) {
         prompt,
         message,
         caller: a2aContext.caller || {},
-        timeoutMs: 65000,
+        timeoutMs: runtime.mode === 'claude' ? claudeTurnTimeoutMs : 65000,
         context: {
           conversationId,
           tier: tierInfo,
           ownerName: agentContext.owner,
           allowedTopics: a2aContext.allowed_topics || [],
+          timeoutMs: runtime.mode === 'claude' ? claudeTurnTimeoutMs : 65000,
           traceId,
           requestId
         }

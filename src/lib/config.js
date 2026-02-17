@@ -224,6 +224,7 @@ const DEFAULT_CONFIG = {
       perHour: 100,
       perDay: 1000
     },
+    turnTimeoutMs: 300000,      // default Claude turn timeout
     maxPendingRequests: 5       // max connection requests per hour
   },
   

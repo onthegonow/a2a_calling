@@ -240,6 +240,28 @@ module.exports = function (test, assert, helpers) {
     cleanup();
   });
 
+  test('validate exposes token timeout_ms when set directly', () => {
+    const store = freshStore();
+    const { token } = store.create({
+      name: 'TimeoutToken',
+      timeoutMs: 240000
+    });
+    const result = store.validate(token);
+    assert.equal(result.timeout_ms, 240000);
+    tmp.cleanup();
+  });
+
+  test('validate derives timeout_ms from tier_settings when top-level is absent', () => {
+    const store = freshStore();
+    const { token } = store.create({
+      name: 'TierTimeoutToken',
+      tierSettings: { timeout_ms: 210000 }
+    });
+    const result = store.validate(token);
+    assert.equal(result.timeout_ms, 210000);
+    tmp.cleanup();
+  });
+
   test('validate rejects unknown token', () => {
     const { store, cleanup } = helpers.tokenStoreWithGolda();
     const result = store.validate('fed_nonexistent');

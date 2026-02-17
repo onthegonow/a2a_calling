@@ -1360,11 +1360,15 @@ a2a add "${inviteUrl}" "${ownerText || 'friend'}" && a2a call "${ownerText || 'f
 
       // Build owner context from config for summarizer
       let ownerContext = {};
+      let configTurnTimeoutMs = null;
       try {
         const { A2AConfig } = require('../src/lib/config');
         const config = new A2AConfig();
         const configAll = config.getAll();
         const tierGoals = configAll.tiers?.public?.goals || [];
+        configTurnTimeoutMs = configAll.defaults?.turnTimeoutMs
+          || configAll.defaults?.turn_timeout_ms
+          || null;
         ownerContext = {
           goals: tierGoals,
           agentName: agentContext.name,
@@ -1383,6 +1387,7 @@ a2a add "${inviteUrl}" "${ownerText || 'friend'}" && a2a call "${ownerText || 'f
         disclosure,
         minTurns,
         maxTurns,
+        configTurnTimeoutMs,
         ownerContext,
         onTurn: (info) => {
           const preview = info.messagePreview.length >= 80

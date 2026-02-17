@@ -14,6 +14,7 @@ const { execSync, spawnSync } = require('child_process');
 const { createLogger } = require('./logger');
 const { runClaudeTurn: invokeClaudeTurn, buildSubagentSystemPrompt, runClaudeSummary } = require('./claude-subagent');
 const { getTopicsForTier, formatTopicsForPrompt, loadManifest } = require('./disclosure');
+const { HARD_FALLBACK_TURN_TIMEOUT_MS } = require('./turn-timeout');
 
 function commandExists(command) {
   try {
@@ -208,7 +209,7 @@ function createRuntimeAdapter(options = {}) {
       activeThreads: context?.activeThreads || [],
       candidateCollaborations: context?.candidateCollaborations || [],
       closeSignal: context?.closeSignal || false,
-      timeoutMs: timeoutMs || 180000
+      timeoutMs: timeoutMs || HARD_FALLBACK_TURN_TIMEOUT_MS
     });
 
     // Store session ID from first turn for subsequent --resume
@@ -379,7 +380,7 @@ function createRuntimeAdapter(options = {}) {
     }
   }
 
-  async function summarize({ sessionId, prompt, messages, callerInfo, traceId, conversationId }) {
+  async function summarize({ sessionId, prompt, messages, callerInfo, traceId, conversationId, timeoutMs }) {
     const effectiveTraceId = traceId || callerInfo?.trace_id || callerInfo?.traceId;
     const requestId = callerInfo?.request_id || callerInfo?.requestId;
     const effectiveConversationId = conversationId || callerInfo?.conversation_id || callerInfo?.conversationId;
@@ -388,7 +389,11 @@ function createRuntimeAdapter(options = {}) {
     if (modeInfo.mode === 'claude') {
       const session = claudeSessions.get(sessionId);
       if (session?.claudeSessionId) {
-        const result = await runClaudeSummary(session.claudeSessionId, 'conversation ended');
+        const result = await runClaudeSummary(
+          session.claudeSessionId,
+          'conversation ended',
+          timeoutMs || HARD_FALLBACK_TURN_TIMEOUT_MS
+        );
         if (result && result.summary) {
           return result;
         }

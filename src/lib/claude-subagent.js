@@ -9,6 +9,7 @@
 
 const { execSync, spawn } = require('child_process');
 const { createLogger } = require('./logger');
+const { HARD_FALLBACK_TURN_TIMEOUT_MS } = require('./turn-timeout');
 
 const logger = createLogger({ component: 'a2a.claude-subagent' });
 
@@ -216,7 +217,7 @@ function parseSubagentResponse(resultText) {
  * @param {number} timeoutMs - Timeout in milliseconds
  * @returns {Promise<{ stdout: string, stderr: string }>}
  */
-function spawnClaude(args, timeoutMs = 180000) {
+function spawnClaude(args, timeoutMs = HARD_FALLBACK_TURN_TIMEOUT_MS) {
   return new Promise((resolve, reject) => {
     const proc = spawn('claude', args, {
       stdio: ['pipe', 'pipe', 'pipe'],
@@ -302,7 +303,7 @@ function extractResultFromJson(stdout) {
  * @param {Array} options.activeThreads - Active conversation threads
  * @param {Array} options.candidateCollaborations - Candidate collaboration ideas
  * @param {boolean} options.closeSignal - Whether close has been signaled
- * @param {number} [options.timeoutMs=180000] - Timeout in milliseconds
+ * @param {number} [options.timeoutMs=300000] - Timeout in milliseconds
  * @returns {Promise<{ message: string, statePatch: object|null, flags: array, sessionId: string }>}
  */
 async function runClaudeTurn(options) {
@@ -317,7 +318,7 @@ async function runClaudeTurn(options) {
     activeThreads = [],
     candidateCollaborations = [],
     closeSignal = false,
-    timeoutMs = 180000
+    timeoutMs = HARD_FALLBACK_TURN_TIMEOUT_MS
   } = options;
 
   const turnPrompt = buildTurnPrompt({
@@ -396,10 +397,10 @@ async function runClaudeTurn(options) {
  *
  * @param {string} sessionId - Session ID to resume
  * @param {string} reason - Why the conversation is ending
- * @param {number} [timeoutMs=120000] - Timeout in milliseconds
+ * @param {number} [timeoutMs=300000] - Timeout in milliseconds
  * @returns {Promise<{ summary: string, ownerSummary: string, actionItems: array, flags: array }>}
  */
-async function runClaudeSummary(sessionId, reason, timeoutMs = 120000) {
+async function runClaudeSummary(sessionId, reason, timeoutMs = HARD_FALLBACK_TURN_TIMEOUT_MS) {
   if (!sessionId) {
     throw new Error('Cannot summarize without a session ID');
   }

@@ -56,6 +56,11 @@ function sanitizeCustomFields(fields, options = {}) {
   return cleaned;
 }
 
+function parsePositiveTimeoutMs(value) {
+  const parsed = Number.parseInt(String(value ?? ''), 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
+
 class TokenStore {
   constructor(configDir = DEFAULT_CONFIG_DIR) {
     this.configDir = configDir;
@@ -196,7 +201,8 @@ class TokenStore {
       // Snapshot of actual capabilities at creation time
       allowedTopics = null,  // Array of topic strings, e.g. ['chat', 'calendar.read']
       allowedGoals = null,   // Array of goal strings, e.g. ['grow-network', 'find-collaborators']
-      tierSettings = null    // Object with tier-specific settings
+      tierSettings = null,   // Object with tier-specific settings
+      timeoutMs = null
     } = options;
 
     const tier = String(permissions || 'public').trim() || 'public';
@@ -255,6 +261,7 @@ class TokenStore {
       capabilities: capabilities || defaultCapabilities,
       allowed_topics: allowedTopics || defaultTopics[tier] || ['chat'],
       allowed_goals: allowedGoals || defaultGoals[tier] || [],
+      timeout_ms: parsePositiveTimeoutMs(timeoutMs),
       tier_settings: tierSettings || {},  // Snapshot of settings at creation
       disclosure,
       notify,
@@ -327,6 +334,10 @@ class TokenStore {
       || TokenStore.DEFAULT_CAPABILITIES[tier]
       || ['context-read'];
 
+    const timeoutMs = parsePositiveTimeoutMs(record.timeout_ms)
+      || parsePositiveTimeoutMs(record.tier_settings?.timeout_ms)
+      || parsePositiveTimeoutMs(record.tier_settings?.timeoutMs);
+
     return {
       valid: true,
       id: record.id,
@@ -335,6 +346,7 @@ class TokenStore {
       capabilities,
       allowed_topics: record.allowed_topics || ['chat'],
       allowed_goals: record.allowed_goals || [],
+      timeout_ms: timeoutMs,
       tier_settings: record.tier_settings || {},
       disclosure: record.disclosure,
       notify: record.notify,

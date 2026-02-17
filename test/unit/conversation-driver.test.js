@@ -827,8 +827,98 @@ module.exports = function (test, assert, helpers) {
 
     await driver.run('Hello!');
 
-    assert.ok(capturedTimeout >= 180000,
-      `Expected timeout >= 180000ms for claude mode, got ${capturedTimeout}`);
+    assert.ok(capturedTimeout >= 300000,
+      `Expected timeout >= 300000ms for claude mode, got ${capturedTimeout}`);
+  });
+
+  test('driver timeout precedence uses token over env and config', async () => {
+    const { ConversationDriver } = require('../../src/lib/conversation-driver');
+
+    let capturedTimeout = null;
+    const originalEnv = process.env.A2A_TURN_TIMEOUT;
+
+    try {
+      process.env.A2A_TURN_TIMEOUT = '275000';
+
+      const mockClaudeRuntime = {
+        mode: 'claude',
+        runTurn: async ({ timeoutMs }) => {
+          capturedTimeout = timeoutMs;
+          return 'Reply';
+        },
+        getLastTurnMeta: () => null
+      };
+
+      const remoteResponses = [
+        { response: 'Hello!', can_continue: true, conversation_id: 'conv_timeout_precedence' },
+        { response: 'Done', can_continue: false, conversation_id: 'conv_timeout_precedence' }
+      ];
+
+      const driver = new ConversationDriver({
+        runtime: mockClaudeRuntime,
+        agentContext: { name: 'claude-agent', owner: 'owner' },
+        caller: { name: 'remote-agent' },
+        endpoint: 'a2a://localhost:9999/fake_token',
+        token: { timeout_ms: 240000 },
+        configTurnTimeoutMs: 260000,
+        minTurns: 1,
+        maxTurns: 5
+      });
+
+      const mockClient = createMockClient(remoteResponses);
+      driver.client = mockClient;
+
+      await driver.run('Hello!');
+      assert.equal(capturedTimeout, 240000);
+    } finally {
+      if (originalEnv === undefined) delete process.env.A2A_TURN_TIMEOUT;
+      else process.env.A2A_TURN_TIMEOUT = originalEnv;
+    }
+  });
+
+  test('driver timeout precedence falls back env then config then hard default', async () => {
+    const { ConversationDriver } = require('../../src/lib/conversation-driver');
+    const originalEnv = process.env.A2A_TURN_TIMEOUT;
+
+    try {
+      process.env.A2A_TURN_TIMEOUT = '210000';
+
+      const mockClaudeRuntime = {
+        mode: 'claude',
+        runTurn: async () => 'Reply',
+        getLastTurnMeta: () => null
+      };
+
+      const driverFromEnv = new ConversationDriver({
+        runtime: mockClaudeRuntime,
+        agentContext: { name: 'claude-agent', owner: 'owner' },
+        caller: { name: 'remote-agent' },
+        endpoint: 'a2a://localhost:9999/fake_token',
+        configTurnTimeoutMs: 260000
+      });
+      assert.equal(driverFromEnv.claudeTimeoutMs, 210000);
+
+      delete process.env.A2A_TURN_TIMEOUT;
+      const driverFromConfig = new ConversationDriver({
+        runtime: mockClaudeRuntime,
+        agentContext: { name: 'claude-agent', owner: 'owner' },
+        caller: { name: 'remote-agent' },
+        endpoint: 'a2a://localhost:9999/fake_token',
+        configTurnTimeoutMs: 260000
+      });
+      assert.equal(driverFromConfig.claudeTimeoutMs, 260000);
+
+      const driverFromFallback = new ConversationDriver({
+        runtime: mockClaudeRuntime,
+        agentContext: { name: 'claude-agent', owner: 'owner' },
+        caller: { name: 'remote-agent' },
+        endpoint: 'a2a://localhost:9999/fake_token'
+      });
+      assert.equal(driverFromFallback.claudeTimeoutMs, 300000);
+    } finally {
+      if (originalEnv === undefined) delete process.env.A2A_TURN_TIMEOUT;
+      else process.env.A2A_TURN_TIMEOUT = originalEnv;
+    }
   });
 
   test('driver applies claude statePatch directly via side channel', async () => {
