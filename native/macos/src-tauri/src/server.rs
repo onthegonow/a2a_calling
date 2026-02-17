@@ -44,7 +44,10 @@ pub fn start_server() -> StartResult {
         }
     };
 
-    let port = crate::discovery::read_config_port().unwrap_or(3001);
+    let port = crate::discovery::read_config_ports()
+        .first()
+        .copied()
+        .unwrap_or(3001);
     let port_str = port.to_string();
 
     let result = Command::new(&binary)

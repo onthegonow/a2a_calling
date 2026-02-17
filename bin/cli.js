@@ -756,6 +756,33 @@ async function handleDisclosureSubmit(args, commandLabel = 'onboard') {
   console.log(`  Disclosure: ${MANIFEST_FILE}`);
   console.log(`  Invite: ${inviteUrl}\n`);
 
+  // Native app install should be part of the onboarding tail on macOS so users
+  // don't end up launching the app before a2a setup is complete.
+  if (os.platform() === 'darwin' && !findNativeApp()) {
+    if (isInteractiveShell()) {
+      const installNow = await promptYesNo('Install the native macOS app? [Y/n] ');
+      if (installNow) {
+        const result = installNativeMacApp({ force: false, quiet: false });
+        if (result.success) {
+          if (result.reason === 'already_current') {
+            console.log(`Native app already installed at current version (${result.version}).`);
+            console.log(`Path: ${result.appPath}\n`);
+          } else {
+            console.log(`Native app installed (v${result.version}).`);
+            console.log(`Path: ${result.appPath}\n`);
+          }
+        } else {
+          console.warn(`Native app install failed: ${result.error || 'unknown error'}`);
+          console.warn('You can retry with: a2a app install\n');
+        }
+      } else {
+        console.log('You can install the native app later with: a2a app install\n');
+      }
+    } else {
+      console.log('Install the native macOS app with: a2a app install\n');
+    }
+  }
+
   return true;
 }
 
@@ -2156,6 +2183,9 @@ a2a add "${inviteUrl}" "${ownerText || 'friend'}" && a2a call "${ownerText || 'f
       });
     } else {
       console.log('  Using existing server.');
+      // Persist detected server port even when reusing an already-running process.
+      // Native app discovery depends on onboarding.server_port as a primary hint.
+      config.setOnboarding({ server_port: serverPort });
     }
     console.log('  ✅ A2A server is running');
 
@@ -2321,6 +2351,11 @@ a2a add "${inviteUrl}" "${ownerText || 'friend'}" && a2a call "${ownerText || 'f
     }
 
     if (action === 'install') {
+      if (os.platform() === 'darwin' && !force && !isOnboarded()) {
+        console.error('Onboarding not complete. Run `a2a quickstart` first, then install the app.');
+        console.error('Use `a2a app install --force` to bypass this check.');
+        process.exit(1);
+      }
       const result = installNativeMacApp({ force, quiet });
       if (result.skipped === 'not_macos') {
         console.error('Native app install is only available on macOS.');
@@ -2944,7 +2979,7 @@ Calling:
   app                 Manage native macOS app
     status            Show native app installation status (default)
     install           Install/update native app from GitHub release
-      --force, -f     Reinstall even when current version is present
+      --force, -f     Reinstall/bypass onboarding guard
       --quiet, -q     Suppress download/extract output
     uninstall         Remove native app from ~/Applications
 

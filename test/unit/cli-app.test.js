@@ -45,6 +45,24 @@ module.exports = function (test, assert, helpers) {
     assert.includes(res.stderr, 'only available on macOS');
   });
 
+  test('app install gate requires onboarding unless --force (source check)', () => {
+    const cliSource = fs.readFileSync(
+      path.join(__dirname, '..', '..', 'bin', 'cli.js'),
+      'utf8'
+    );
+    assert.includes(cliSource, 'Onboarding not complete. Run `a2a quickstart` first, then install the app.');
+    assert.includes(cliSource, 'a2a app install --force');
+  });
+
+  test('quickstart completion offers native app install on macOS (source check)', () => {
+    const cliSource = fs.readFileSync(
+      path.join(__dirname, '..', '..', 'bin', 'cli.js'),
+      'utf8'
+    );
+    assert.includes(cliSource, 'Install the native macOS app? [Y/n]');
+    assert.includes(cliSource, 'You can install the native app later with: a2a app install');
+  });
+
   test('app uninstall targets both user and system Applications paths', () => {
     const cliSource = fs.readFileSync(
       path.join(__dirname, '..', '..', 'bin', 'cli.js'),

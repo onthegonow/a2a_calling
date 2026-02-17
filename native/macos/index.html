@@ -62,7 +62,7 @@
         <span class="status-indicator searching"></span>
         Looking for a2a server...
       </p>
-      <p class="port-info" id="port-info">Scanning ports: 3001, 80, 8080, 8443, 9001</p>
+      <p class="port-info" id="port-info">Scanning ports: 80, 3001, 8080, 8443, 9001</p>
     </div>
 
     <div id="status-not-found" style="display:none;">
@@ -86,10 +86,22 @@
   </div>
 
   <script>
-    const { invoke } = window.__TAURI__.core;
+    const tauriCore = window.__TAURI__ && window.__TAURI__.core;
+    const tauriEvents = window.__TAURI__ && window.__TAURI__.event;
+    const legacyInvoke = window.__TAURI_INTERNALS__ && window.__TAURI_INTERNALS__.invoke;
+    const invoke = (tauriCore && tauriCore.invoke)
+      ? tauriCore.invoke
+      : (legacyInvoke ? ((cmd, args) => legacyInvoke(cmd, args)) : null);
 
     async function checkServer() {
       show('status-searching');
+      if (!invoke) {
+        show('status-not-found');
+        const detail = document.getElementById('error-detail');
+        detail.textContent = 'Tauri bridge unavailable. Reinstall with `a2a app install --force`.';
+        detail.style.display = 'block';
+        return;
+      }
       try {
         const result = await invoke('discover_server');
         if (result.port) {
@@ -132,16 +144,16 @@
     checkServer();
 
     // Listen for server disconnect/reconnect from Tauri backend
-    const { listen } = window.__TAURI__.event;
-
-    listen('server-status', (event) => {
-      const { connected, port } = event.payload;
-      if (!connected) {
-        showReconnectionOverlay();
-      } else {
-        hideReconnectionOverlay();
-      }
-    });
+    if (tauriEvents && tauriEvents.listen) {
+      tauriEvents.listen('server-status', (event) => {
+        const { connected } = event.payload;
+        if (!connected) {
+          showReconnectionOverlay();
+        } else {
+          hideReconnectionOverlay();
+        }
+      });
+    }
 
     function showReconnectionOverlay() {
       if (document.getElementById('reconnect-overlay')) return;
