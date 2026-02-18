@@ -2112,8 +2112,7 @@ function escapeHtml(s) {
 
 async function loadHealth() {
   try {
-    const res = await fetch('./api/test-results');
-    const data = await res.json();
+    const data = await request('/test-results');
     renderHealthLatest(data.latest);
     renderHealthHistory(data.history || []);
   } catch (err) {
@@ -2138,10 +2137,10 @@ function renderHealthLatest(latest) {
   const regression = latest.regression;
   let regressionHtml = '';
   if (regression && regression.detected) {
-    regressionHtml = `<p><sl-badge variant="warning">REGRESSION</sl-badge> New failures: ${regression.newFailures.join(', ')}</p>`;
+    regressionHtml = `<p><sl-badge variant="warning">REGRESSION</sl-badge> New failures: ${regression.newFailures.map(escapeHtml).join(', ')}</p>`;
   }
   if (regression && regression.fixedTests && regression.fixedTests.length > 0) {
-    regressionHtml += `<p><sl-badge variant="success">FIXED</sl-badge> ${regression.fixedTests.join(', ')}</p>`;
+    regressionHtml += `<p><sl-badge variant="success">FIXED</sl-badge> ${regression.fixedTests.map(escapeHtml).join(', ')}</p>`;
   }
 
   const ts = latest.finishedAt ? new Date(latest.finishedAt).toLocaleString() : 'unknown';
