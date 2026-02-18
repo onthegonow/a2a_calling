@@ -1,8 +1,13 @@
 /**
  * A2A Skill Installer
  *
- * Copies Claude Code commands and Codex AGENTS.md into a target project directory.
- * Idempotent: skips files that already exist with identical content.
+ * Copies Claude Code commands, CLAUDE.md context, and Codex AGENTS.md into a
+ * target project directory. Idempotent: skips files that already exist with
+ * identical content.
+ *
+ * CLAUDE.md is the key file — Claude Code reads it automatically, giving the
+ * agent full context about the a2a CLI, native app, and onboarding flow
+ * immediately after npm install.
  */
 
 const fs = require('fs');
@@ -11,11 +16,15 @@ const path = require('path');
 const PACKAGE_ROOT = path.join(__dirname, '..');
 
 const SKILL_FILES = [
+  // CLAUDE.md — gives Claude Code instant context about the a2a CLI
+  { src: 'CLAUDE-INSTALL.md', dest: 'CLAUDE.md', mergeKey: '# A2A Calling' },
+  // Claude Code slash commands
   { src: '.claude/commands/a2a-call.md', dest: '.claude/commands/a2a-call.md' },
   { src: '.claude/commands/a2a-invite.md', dest: '.claude/commands/a2a-invite.md' },
   { src: '.claude/commands/a2a-contacts.md', dest: '.claude/commands/a2a-contacts.md' },
   { src: '.claude/commands/a2a-status.md', dest: '.claude/commands/a2a-status.md' },
   { src: '.claude/commands/a2a-setup.md', dest: '.claude/commands/a2a-setup.md' },
+  // Codex agent instructions
   { src: '.codex/AGENTS.md', dest: '.codex/AGENTS.md' }
 ];
 
@@ -34,10 +43,36 @@ function installSkills(targetDir, options = {}) {
 
       const srcContent = fs.readFileSync(srcPath, 'utf8');
 
-      // Check if identical file already exists
-      if (!options.force && fs.existsSync(destPath)) {
+      if (fs.existsSync(destPath)) {
         const existing = fs.readFileSync(destPath, 'utf8');
-        if (existing === srcContent) {
+
+        // Merge mode: if the file has a mergeKey, append/replace the A2A section
+        // in an existing file rather than overwriting it entirely.
+        if (file.mergeKey) {
+          if (existing.includes(file.mergeKey)) {
+            // A2A section already present — extract and compare
+            const sectionStart = existing.indexOf(file.mergeKey);
+            const existingSection = existing.slice(sectionStart);
+            if (!options.force && existingSection.trim() === srcContent.trim()) {
+              result.skipped.push(file.dest);
+              continue;
+            }
+            // Replace the A2A section with updated content
+            const before = existing.slice(0, sectionStart).trimEnd();
+            const merged = before ? before + '\n\n' + srcContent : srcContent;
+            fs.writeFileSync(destPath, merged);
+            result.installed.push(file.dest + ' (updated A2A section)');
+          } else {
+            // Existing CLAUDE.md without A2A section — append
+            const merged = existing.trimEnd() + '\n\n' + srcContent;
+            fs.writeFileSync(destPath, merged);
+            result.installed.push(file.dest + ' (appended A2A section)');
+          }
+          continue;
+        }
+
+        // Standard mode: skip if identical
+        if (!options.force && existing === srcContent) {
           result.skipped.push(file.dest);
           continue;
         }

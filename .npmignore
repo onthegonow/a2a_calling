@@ -9,7 +9,7 @@ node_modules
 .local/
 .tools/
 test/
-.claude/
+.claude/settings.local.json
 AGENTS.md
 CLAUDE.md
 .github/

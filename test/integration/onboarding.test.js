@@ -712,14 +712,14 @@ module.exports = function (test, assert, helpers) {
     assert.equal(out, '', 'Should produce no output in CI');
   });
 
-  // ── Issue #23: Postinstall skips for local installs ──
-  test('postinstall exits silently for non-global installs', () => {
+  // ── Issue #23 / A2A-33: Local installs print getting-started context ──
+  test('postinstall prints getting-started context for local installs', () => {
     const { execFileSync } = require('child_process');
     const path = require('path');
 
     const postinstallPath = path.join(__dirname, '..', '..', 'scripts', 'postinstall.js');
 
-    // npm_config_global is NOT 'true'
+    // npm_config_global is NOT 'true' — simulates local install
     const env = { ...process.env };
     delete env.CI;
     delete env.CONTINUOUS_INTEGRATION;
@@ -730,7 +730,10 @@ module.exports = function (test, assert, helpers) {
       encoding: 'utf8'
     });
 
-    assert.equal(out, '', 'Should produce no output for local installs');
+    // Local installs should print getting-started context so Claude has
+    // immediate awareness of the a2a CLI (A2A-33)
+    assert.ok(out.includes('a2a quickstart'), 'Should mention a2a quickstart');
+    assert.ok(out.includes('A2A Calling'), 'Should include A2A Calling header');
   });
 
   // ── Issue #8: Step numbering is sequential (no duplicates) ──
