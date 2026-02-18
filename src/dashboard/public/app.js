@@ -645,15 +645,36 @@ async function loadCallDetail(conversationId) {
   const payload = await request(`/calls/${encodeURIComponent(conversationId)}?messages=40`);
   const call = payload.call;
   const el = document.getElementById('call-detail');
-  const messages = (call.recentMessages || [])
-    .map(msg => `[${fmtDate(msg.timestamp)}] ${msg.direction}: ${msg.content}`)
+
+  // Summary: prefer agent-generated summary, fall back to owner summary
+  const summaryText = call.summary || call.ownerContext?.summary || '';
+  const summaryHtml = summaryText
+    ? `<pre class="summary">${esc(summaryText)}</pre>`
+    : `<p class="summary-pending"><em>${call.status === 'active' ? 'Call in progress\u2026' : 'Summary pending\u2026'}</em></p>`;
+
+  // Full transcript in a collapsible section
+  const messages = (call.recentMessages || []);
+  const transcriptLines = messages
+    .map(msg => `[${esc(fmtDate(msg.timestamp))}] ${esc(msg.direction)}: ${esc(msg.content)}`)
     .join('\n\n');
+  const totalMessages = call.messageCount || messages.length;
+  const countLabel = messages.length < totalMessages
+    ? `${messages.length} of ${totalMessages} messages`
+    : `${messages.length} message${messages.length === 1 ? '' : 's'}`;
+  const transcriptHtml = messages.length
+    ? `<details class="transcript-details">
+        <summary>Full Transcript (${countLabel})</summary>
+        <pre class="transcript">${transcriptLines}</pre>
+      </details>`
+    : '';
+
   el.innerHTML = `
-    <h3>Call Detail: ${call.id}</h3>
-    <p><strong>Contact:</strong> ${call.contact?.name || call.contact || '-'}</p>
-    <p><strong>Status:</strong> ${call.status || '-'}</p>
-    <p><strong>Summary:</strong> ${(call.summary || call.ownerContext?.summary || '-')}</p>
-    <pre class="summary">${messages || 'No messages recorded.'}</pre>
+    <h3>Call Detail: ${esc(call.id)}</h3>
+    <p><strong>Contact:</strong> ${esc(call.contact?.name || call.contact || '-')}</p>
+    <p><strong>Status:</strong> ${esc(call.status || '-')}</p>
+    <p><strong>Summary:</strong></p>
+    ${summaryHtml}
+    ${transcriptHtml}
   `;
 }
 
