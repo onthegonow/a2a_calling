@@ -214,13 +214,13 @@ function formatUpdaterState(stateValue) {
   return state.replaceAll('_', ' ');
 }
 
-function updaterPillClass(stateValue) {
+function badgeVariant(stateValue) {
   const state = String(stateValue || '').trim();
-  if (state === 'failed') return 'err';
+  if (state === 'failed') return 'danger';
   if (state === 'waiting_for_safe_restart' || state === 'checking' || state === 'downloading' || state === 'applying' || state === 'restarting') {
-    return 'warn';
+    return 'warning';
   }
-  return 'ok';
+  return 'success';
 }
 
 async function copyText(value) {
@@ -250,37 +250,33 @@ async function copyText(value) {
 }
 
 function bindTabs() {
-  const activateTab = (tab, options = {}) => {
-    const target = String(tab || '').replace(/^#/, '').trim();
-    if (!target) return false;
-    const btn = Array.from(document.querySelectorAll('.tab')).find(b => b.dataset.tab === target);
-    const panel = document.getElementById(`tab-${target}`);
-    if (!btn || !panel) return false;
+  const tabGroup = document.getElementById('main-tabs');
+  if (!tabGroup) return;
 
-    document.querySelectorAll('.tab').forEach(b => b.classList.remove('is-active'));
-    document.querySelectorAll('.panel').forEach(p => p.classList.remove('is-active'));
-    btn.classList.add('is-active');
-    panel.classList.add('is-active');
+  tabGroup.addEventListener('sl-tab-show', (e) => {
+    const tabName = e.detail.name;
+    try { window.location.hash = tabName; } catch (err) {}
+    if (typeof onTabSwitch === 'function') onTabSwitch(tabName);
+  });
 
-    if (options.updateHash) {
-      try { window.location.hash = target; } catch (err) {}
+  // Deep-link support: activate the tab matching the URL hash
+  const activateFromHash = () => {
+    const hash = window.location.hash.slice(1);
+    if (hash) {
+      // Use try/catch in case the tab group isn't fully ready
+      try { tabGroup.show(hash); } catch (err) {}
     }
-    if (typeof onTabSwitch === 'function') onTabSwitch(target);
-    return true;
   };
 
-  document.querySelectorAll('.tab').forEach(btn => {
-    btn.addEventListener('click', () => {
-      activateTab(btn.dataset.tab, { updateHash: true });
-    });
-  });
+  window.addEventListener('hashchange', activateFromHash);
 
-  window.addEventListener('hashchange', () => {
-    activateTab(window.location.hash);
-  });
-
-  // Deep-link into a tab with /dashboard/#logs, etc.
-  activateTab(window.location.hash);
+  // On initial load, activate from hash (wait for Shoelace to be ready)
+  if (tabGroup.updateComplete) {
+    tabGroup.updateComplete.then(activateFromHash);
+  } else {
+    // Fallback: try after a short delay
+    setTimeout(activateFromHash, 100);
+  }
 }
 
 function norm(value) {
@@ -372,13 +368,13 @@ function renderContacts() {
 
     const actionBits = [];
     if (opts.showPin) {
-      actionBits.push(`<button class="pin-btn${isPinned ? ' pinned' : ''}" data-pin-contact="${esc(c.id)}" type="button" title="${isPinned ? 'Unpin' : 'Pin to top'}">${isPinned ? '\u{1F4CC}' : '\u{1F4CD}'}</button>`);
+      actionBits.push(`<sl-icon-button name="${isPinned ? 'pin-fill' : 'pin'}" class="pin-btn${isPinned ? ' pinned' : ''}" data-pin-contact="${esc(c.id)}" title="${isPinned ? 'Unpin' : 'Pin to top'}"></sl-icon-button>`);
     }
     if (c?.last_call_id) {
-      actionBits.push(`<button data-open-call="${esc(c.last_call_id)}" type="button">Transcript</button>`);
+      actionBits.push(`<sl-button size="small" data-open-call="${esc(c.last_call_id)}">Transcript</sl-button>`);
     }
-    actionBits.push(`<button data-toggle-mine="${esc(c.id)}" type="button">${mine ? 'Unmark mine' : 'Mark mine'}</button>`);
-    actionBits.push(`<button data-remove-contact="${esc(c.id)}" type="button">Remove</button>`);
+    actionBits.push(`<sl-button size="small" data-toggle-mine="${esc(c.id)}">${mine ? 'Unmark mine' : 'Mark mine'}</sl-button>`);
+    actionBits.push(`<sl-button size="small" variant="danger" data-remove-contact="${esc(c.id)}">Remove</sl-button>`);
 
     const locationCell = opts.showLocation ? `<td>${esc(formatLocation(c))}</td>` : '';
     const ownerCell = opts.showOwner ? `<td>${esc(c?.owner || '-')}</td>` : '';
@@ -388,8 +384,8 @@ function renderContacts() {
       <tr ${isSelected ? 'data-selected="1"' : ''}>
         <td>
           <div class="row" style="margin:0;">
-            <button class="btn-link" data-contact-select="${esc(c.id)}" type="button">${esc(contactLabel(c))}</button>
-            <button data-contact-call="${esc(c.id)}" type="button" ${canCall ? '' : 'disabled'}>Call</button>
+            <sl-button variant="text" size="small" data-contact-select="${esc(c.id)}">${esc(contactLabel(c))}</sl-button>
+            <sl-button size="small" variant="primary" data-contact-call="${esc(c.id)}" ${canCall ? '' : 'disabled'}>Call</sl-button>
           </div>
         </td>
         ${locationCell}
@@ -422,17 +418,17 @@ function renderContacts() {
   };
 
   const myAgentsSection = `
-    <div class="card">
+    <sl-card>
       <h3>My agents</h3>
       ${tableHtml(myAgents, { showLocation: true, showOwner: false, showSummary: false })}
-    </div>
+    </sl-card>
   `;
 
   const lastCalledSection = `
-    <div class="card">
+    <sl-card>
       <h3>Last called agents</h3>
       ${tableHtml(lastCalled, { showLocation: false, showOwner: true, showSummary: false, showPin: true })}
-    </div>
+    </sl-card>
   `;
 
   const otherContacts = contacts.filter(c => !isMine(c));
@@ -452,10 +448,10 @@ function renderContacts() {
   const groupedSections = otherOwners.map(owner => {
     const rows = (otherGroups.get(owner) || []).slice().sort((a, b) => contactLabel(a).localeCompare(contactLabel(b)));
     return `
-      <div class="card">
+      <sl-card>
         <h3>${esc(owner)}</h3>
         ${tableHtml(rows, { showLocation: false, showOwner: false, showSummary: true })}
-      </div>
+      </sl-card>
     `;
   }).join('');
 
@@ -477,22 +473,12 @@ function bindContactsActions() {
   const form = document.getElementById('add-contact-form');
   if (!form) return;
 
-  // Toggle button to show/hide Add Contact form
-  const toggleBtn = document.getElementById('add-contact-toggle');
-  const addCard = document.getElementById('add-contact-card');
-  if (toggleBtn && addCard) {
-    toggleBtn.addEventListener('click', () => {
-      const isHidden = addCard.style.display === 'none';
-      addCard.style.display = isHidden ? 'block' : 'none';
-      toggleBtn.style.display = isHidden ? 'none' : 'block';
-    });
-  }
-
+  // Cancel button collapses the sl-details
   const cancelBtn = document.getElementById('add-contact-cancel');
-  if (cancelBtn && addCard && toggleBtn) {
+  const addDetails = document.getElementById('add-contact-details');
+  if (cancelBtn && addDetails) {
     cancelBtn.addEventListener('click', () => {
-      addCard.style.display = 'none';
-      toggleBtn.style.display = 'block';
+      addDetails.open = false;
     });
   }
 
@@ -508,9 +494,9 @@ function bindContactsActions() {
       serverNameEl.value = match[1];
     }
   };
-  urlEl?.addEventListener('blur', defaultServerNameFromUrl);
-  urlEl?.addEventListener('change', defaultServerNameFromUrl);
-  mineEl?.addEventListener('change', () => {
+  urlEl?.addEventListener('sl-blur', defaultServerNameFromUrl);
+  urlEl?.addEventListener('sl-change', defaultServerNameFromUrl);
+  mineEl?.addEventListener('sl-change', () => {
     if (!serverNameEl) return;
     serverNameEl.disabled = !mineEl.checked;
     if (mineEl.checked) {
@@ -526,7 +512,7 @@ function bindContactsActions() {
     const url = document.getElementById('add-contact-url').value.trim();
     const name = document.getElementById('add-contact-name').value.trim();
     const owner = document.getElementById('add-contact-owner').value.trim();
-    const isMine = Boolean(document.getElementById('add-contact-mine')?.checked);
+    const isMineVal = Boolean(document.getElementById('add-contact-mine')?.checked);
     const serverName = document.getElementById('add-contact-server-name').value.trim();
     const tagsRaw = document.getElementById('add-contact-tags').value.trim();
     const notes = document.getElementById('add-contact-notes').value.trim();
@@ -556,7 +542,7 @@ function bindContactsActions() {
           invite_url: url,
           name: name || undefined,
           owner: owner || undefined,
-          is_mine: isMine,
+          is_mine: isMineVal,
           server_name: serverName || undefined,
           tags,
           notes: notes || undefined,
@@ -565,18 +551,18 @@ function bindContactsActions() {
       });
       showNotice('Contact added');
       form.reset();
-      // Collapse the Add Contact form after successful add
-      if (addCard) addCard.style.display = 'none';
-      if (toggleBtn) toggleBtn.style.display = 'block';
+      // Collapse the sl-details after successful add
+      if (addDetails) addDetails.open = false;
       await loadContacts();
     } catch (err) {
       showNotice(err.message);
     }
   });
 
-  const panel = document.getElementById('tab-contacts');
+  // Event delegation on the contacts tab panel
+  const panel = document.querySelector('sl-tab-panel[name="contacts"]');
   panel?.addEventListener('click', async (e) => {
-    const pinBtn = e.target.closest('button[data-pin-contact]');
+    const pinBtn = e.target.closest('[data-pin-contact]');
     if (pinBtn) {
       e.preventDefault();
       const id = pinBtn.dataset.pinContact;
@@ -584,7 +570,7 @@ function bindContactsActions() {
       return;
     }
 
-    const selectBtn = e.target.closest('button[data-contact-select]');
+    const selectBtn = e.target.closest('[data-contact-select]');
     if (selectBtn) {
       e.preventDefault();
       const id = selectBtn.dataset.contactSelect;
@@ -594,14 +580,14 @@ function bindContactsActions() {
       return;
     }
 
-    const openBtn = e.target.closest('button[data-open-call]');
+    const openBtn = e.target.closest('[data-open-call]');
     if (openBtn) {
       e.preventDefault();
       openCallTranscript(openBtn.dataset.openCall);
       return;
     }
 
-    const mineBtn = e.target.closest('button[data-toggle-mine]');
+    const mineBtn = e.target.closest('[data-toggle-mine]');
     if (mineBtn) {
       e.preventDefault();
       const id = mineBtn.dataset.toggleMine;
@@ -628,7 +614,7 @@ function bindContactsActions() {
       return;
     }
 
-    const removeBtn = e.target.closest('button[data-remove-contact]');
+    const removeBtn = e.target.closest('[data-remove-contact]');
     if (removeBtn) {
       e.preventDefault();
       const id = removeBtn.dataset.removeContact;
@@ -650,7 +636,7 @@ function bindContactsActions() {
       return;
     }
 
-    const callBtn = e.target.closest('button[data-contact-call]');
+    const callBtn = e.target.closest('[data-contact-call]');
     if (callBtn) {
       e.preventDefault();
       const id = callBtn.dataset.contactCall;
@@ -732,10 +718,9 @@ async function loadCallDetail(conversationId) {
     ? `${messages.length} of ${totalMessages} messages`
     : `${messages.length} message${messages.length === 1 ? '' : 's'}`;
   const transcriptHtml = messages.length
-    ? `<details class="transcript-details">
-        <summary>Full Transcript (${countLabel})</summary>
+    ? `<sl-details class="transcript-details" summary="Full Transcript (${countLabel})">
         <pre class="transcript">${transcriptLines}</pre>
-      </details>`
+      </sl-details>`
     : '';
 
   el.innerHTML = `
@@ -781,7 +766,7 @@ function renderContactDetail() {
   const resultHtml = result
     ? `<div style="margin-top:0.6rem;">
         <strong>Last call result:</strong> ${result.success ? 'success' : 'failed'}<br>
-        ${result.conversation_id ? `Conversation: <span class="mono">${esc(result.conversation_id)}</span> <button data-open-call="${esc(result.conversation_id)}" type="button">Transcript</button><br>` : ''}
+        ${result.conversation_id ? `Conversation: <span class="mono">${esc(result.conversation_id)}</span> <sl-button size="small" data-open-call="${esc(result.conversation_id)}">Transcript</sl-button><br>` : ''}
         ${result.error ? `<span class="mono">${esc(result.error)}</span><br>` : ''}
         ${result.response ? `<pre class="summary">${esc(String(result.response))}</pre>` : ''}
       </div>`
@@ -796,7 +781,7 @@ function renderContactDetail() {
         <td>${esc(call.status || '-')}</td>
         <td>${esc(fmtDate(call.last_message_at))}</td>
         <td title="${esc(summary)}">${esc(preview)}</td>
-        <td><button data-open-call="${esc(call.id)}" type="button">Transcript</button></td>
+        <td><sl-button size="small" data-open-call="${esc(call.id)}">Transcript</sl-button></td>
       </tr>
     `;
   }).join('');
@@ -804,16 +789,16 @@ function renderContactDetail() {
   el.innerHTML = `
     <div class="row">
       <h3 style="margin:0;">Contact: ${esc(contactLabel(contact))}</h3>
-      <button data-contact-call="${esc(contact.id)}" type="button" ${canCall ? '' : 'disabled'}>Call</button>
-      <button data-remove-contact="${esc(contact.id)}" type="button">Remove</button>
+      <sl-button size="small" variant="primary" data-contact-call="${esc(contact.id)}" ${canCall ? '' : 'disabled'}>Call</sl-button>
+      <sl-button size="small" variant="danger" data-remove-contact="${esc(contact.id)}">Remove</sl-button>
     </div>
 
-	    <div class="row" style="margin-bottom:0.4rem;">
-	      <div><strong>Mine:</strong> ${contact.is_mine ? 'yes' : 'no'}</div>
-	      <div><strong>Owner:</strong> ${esc(contact.owner || '-')}</div>
-	      <div><strong>Web address:</strong> <span class="mono">${esc(contact.web_address || contact.host || '-')}</span></div>
-	      <div><strong>Server name:</strong> ${esc(contact.server_name || '-')}</div>
-	    </div>
+    <div class="row" style="margin-bottom:0.4rem;">
+      <div><strong>Mine:</strong> ${contact.is_mine ? 'yes' : 'no'}</div>
+      <div><strong>Owner:</strong> ${esc(contact.owner || '-')}</div>
+      <div><strong>Web address:</strong> <span class="mono">${esc(contact.web_address || contact.host || '-')}</span></div>
+      <div><strong>Server name:</strong> ${esc(contact.server_name || '-')}</div>
+    </div>
     <div class="row">
       <div><strong>Status:</strong> ${esc(contact.status || '-')}</div>
       <div><strong>Total calls:</strong> ${esc(String(contact.call_count || 0))}</div>
@@ -822,48 +807,45 @@ function renderContactDetail() {
 
     ${resultHtml}
 
-    <details style="margin-top:0.8rem;" open>
-	      <summary><strong>Edit contact</strong></summary>
-	      <form id="contact-edit-form" data-contact-id="${esc(contact.id)}" style="margin-top:0.6rem;">
-	        <label>Agent name <input id="contact-edit-name" type="text" value="${esc(contact.name || '')}"></label>
-	        <label>Owner name <input id="contact-edit-owner" type="text" value="${esc(contact.owner || '')}"></label>
-	        <label><input id="contact-edit-mine" type="checkbox" ${contact.is_mine ? 'checked' : ''}> Mark as mine (personal agent)</label>
-	        <label>Server name (my agents only) <input id="contact-edit-server-name" type="text" value="${esc(contact.server_name || '')}" ${contact.is_mine ? '' : 'disabled'}></label>
-	        <label>Tags <input id="contact-edit-tags" type="text" value="${esc(tagsText)}" placeholder="comma,separated"></label>
-	        <label>Notes <textarea id="contact-edit-notes" rows="3">${esc(contact.notes || '')}</textarea></label>
-	        <label>Fields (JSON) <textarea id="contact-edit-fields" rows="5">${esc(fieldsText)}</textarea></label>
-	        <div class="row">
-	          <button type="submit">Save</button>
-	        </div>
-	      </form>
-	    </details>
-
-    <details style="margin-top:0.8rem;" open>
-      <summary><strong>Call</strong></summary>
-      <form id="contact-call-form" data-contact-id="${esc(contact.id)}" style="margin-top:0.6rem;">
-        <label>Message <textarea id="contact-call-message" rows="4" placeholder="Message to send"></textarea></label>
+    <sl-details summary="Edit contact" open style="margin-top:0.8rem;">
+      <form id="contact-edit-form" data-contact-id="${esc(contact.id)}" style="margin-top:0.6rem;">
+        <sl-input id="contact-edit-name" label="Agent name" value="${esc(contact.name || '')}"></sl-input>
+        <sl-input id="contact-edit-owner" label="Owner name" value="${esc(contact.owner || '')}"></sl-input>
+        <sl-checkbox id="contact-edit-mine" ${contact.is_mine ? 'checked' : ''}>Mark as mine (personal agent)</sl-checkbox>
+        <sl-input id="contact-edit-server-name" label="Server name (my agents only)" value="${esc(contact.server_name || '')}" ${contact.is_mine ? '' : 'disabled'}></sl-input>
+        <sl-input id="contact-edit-tags" label="Tags" value="${esc(tagsText)}" placeholder="comma,separated"></sl-input>
+        <sl-textarea id="contact-edit-notes" label="Notes" rows="3" value="${esc(contact.notes || '')}"></sl-textarea>
+        <sl-textarea id="contact-edit-fields" label="Fields (JSON)" rows="5" value="${esc(fieldsText)}"></sl-textarea>
         <div class="row">
-          <button type="submit" ${canCall ? '' : 'disabled'}>Call</button>
+          <sl-button type="submit" variant="primary" size="small">Save</sl-button>
         </div>
       </form>
-    </details>
+    </sl-details>
 
-    <details style="margin-top:0.8rem;">
-      <summary><strong>Call history</strong></summary>
+    <sl-details summary="Call" open style="margin-top:0.8rem;">
+      <form id="contact-call-form" data-contact-id="${esc(contact.id)}" style="margin-top:0.6rem;">
+        <sl-textarea id="contact-call-message" label="Message" rows="4" placeholder="Message to send"></sl-textarea>
+        <div class="row">
+          <sl-button type="submit" variant="primary" size="small" ${canCall ? '' : 'disabled'}>Call</sl-button>
+        </div>
+      </form>
+    </sl-details>
+
+    <sl-details summary="Call history" style="margin-top:0.8rem;">
       <div style="margin-top:0.6rem;">
         <table>
           <thead><tr><th>ID</th><th>Status</th><th>Updated</th><th>Summary</th><th>Action</th></tr></thead>
           <tbody>${callRows || '<tr><td colspan="5">No calls found.</td></tr>'}</tbody>
         </table>
       </div>
-    </details>
+    </sl-details>
   `;
 
   const editForm = document.getElementById('contact-edit-form');
   if (editForm) {
     const mineEl = document.getElementById('contact-edit-mine');
     const serverNameEl = document.getElementById('contact-edit-server-name');
-    mineEl?.addEventListener('change', () => {
+    mineEl?.addEventListener('sl-change', () => {
       if (!serverNameEl) return;
       serverNameEl.disabled = !mineEl.checked;
     });
@@ -893,19 +875,19 @@ function renderContactDetail() {
         }
       }
 
-	      try {
-	        await request(`/contacts/${encodeURIComponent(id)}`, {
-	          method: 'PUT',
-	          body: JSON.stringify({
-	            name: document.getElementById('contact-edit-name').value,
-	            owner: document.getElementById('contact-edit-owner').value,
-	            is_mine: Boolean(document.getElementById('contact-edit-mine')?.checked),
-	            server_name: document.getElementById('contact-edit-server-name').value,
-	            notes: document.getElementById('contact-edit-notes').value,
-	            tags,
-	            fields
-	          })
-	        });
+      try {
+        await request(`/contacts/${encodeURIComponent(id)}`, {
+          method: 'PUT',
+          body: JSON.stringify({
+            name: document.getElementById('contact-edit-name').value,
+            owner: document.getElementById('contact-edit-owner').value,
+            is_mine: Boolean(document.getElementById('contact-edit-mine')?.checked),
+            server_name: document.getElementById('contact-edit-server-name').value,
+            notes: document.getElementById('contact-edit-notes').value,
+            tags,
+            fields
+          })
+        });
         showNotice('Contact saved');
         await loadContacts();
         await loadCallsForContact(id);
@@ -1024,10 +1006,10 @@ function renderLogStats() {
       <strong>Total:</strong> ${stats.total || 0}
     </div>
     <div class="row">
-      <strong>By level:</strong> ${levels.map(([k, v]) => `${esc(k)}=${v}`).join(' · ') || '(none)'}
+      <strong>By level:</strong> ${levels.map(([k, v]) => `${esc(k)}=${v}`).join(' \u00b7 ') || '(none)'}
     </div>
     <div class="row">
-      <strong>Top components:</strong> ${components.map(([k, v]) => `${esc(k)}=${v}`).join(' · ') || '(none)'}
+      <strong>Top components:</strong> ${components.map(([k, v]) => `${esc(k)}=${v}`).join(' \u00b7 ') || '(none)'}
     </div>
   `;
 }
@@ -1055,7 +1037,7 @@ function renderTraceDetail() {
   el.innerHTML = `
     <div class="row">
       <h3 style="margin:0;">Trace: <span class="mono">${esc(state.trace.trace_id || '')}</span></h3>
-      <button id="clear-trace">Clear</button>
+      <sl-button id="clear-trace" size="small">Clear</sl-button>
     </div>
     <pre class="summary mono">${esc(lines || 'No trace logs.')}</pre>
   `;
@@ -1081,8 +1063,8 @@ function renderLogs() {
       <td>${esc(row.component || '-')}</td>
       <td>${esc(row.event || '-')}</td>
       <td title="${esc(row.message || '')}">${esc(String(row.message || '').slice(0, 120) || '-')}</td>
-      <td class="mono">${esc(trace ? trace.slice(0, 14) + '…' : '-')}</td>
-      <td class="mono">${esc(row.conversation_id ? row.conversation_id.slice(0, 14) + '…' : '-')}</td>
+      <td class="mono">${esc(trace ? trace.slice(0, 14) + '\u2026' : '-')}</td>
+      <td class="mono">${esc(row.conversation_id ? row.conversation_id.slice(0, 14) + '\u2026' : '-')}</td>
       <td class="mono">${esc(row.token_id || '-')}</td>
       <td>${esc(row.error_code || '-')}</td>
       <td>${esc(row.status_code ?? '-')}</td>
@@ -1120,16 +1102,15 @@ function fillTierSelects() {
   const newTierCopy = document.getElementById('new-tier-copy-from');
   const inviteTier = document.getElementById('invite-tier');
 
-  [tierSelect, copyFrom, inviteTier].forEach(el => { el.innerHTML = ''; });
-  newTierCopy.innerHTML = '<option value="">None</option>';
+  // Build options HTML for sl-select elements
+  const optionsHtml = tiers.map(tier =>
+    `<sl-option value="${esc(tier.id)}">${esc(tier.id)} (${esc(tier.name || tier.id)})</sl-option>`
+  ).join('');
 
-  tiers.forEach(tier => {
-    const option = new Option(`${tier.id} (${tier.name || tier.id})`, tier.id);
-    tierSelect.add(option.cloneNode(true));
-    copyFrom.add(option.cloneNode(true));
-    inviteTier.add(option.cloneNode(true));
-    newTierCopy.add(option.cloneNode(true));
-  });
+  tierSelect.innerHTML = optionsHtml;
+  copyFrom.innerHTML = optionsHtml;
+  inviteTier.innerHTML = optionsHtml;
+  newTierCopy.innerHTML = `<sl-option value="">None</sl-option>${optionsHtml}`;
 
   if (tiers.length > 0) {
     tierSelect.value = tiers[0].id;
@@ -1153,7 +1134,7 @@ function renderTierEditor(tierId) {
 }
 
 function bindSettingsActions() {
-  document.getElementById('tier-select').addEventListener('change', (e) => {
+  document.getElementById('tier-select').addEventListener('sl-change', (e) => {
     renderTierEditor(e.target.value);
   });
 
@@ -1241,7 +1222,7 @@ function renderCallbookStatus() {
 
   const s = state.dashboardStatus;
   if (!s) {
-    el.textContent = 'Loading…';
+    el.textContent = 'Loading\u2026';
     return;
   }
 
@@ -1262,8 +1243,7 @@ function renderCallbookStatus() {
   const extMetaText = extMeta.length ? ` <span class="mono">(${esc(extMeta.join(', '))})</span>` : '';
   const extErrorText = ext && ext.error ? esc(ext.error) : '';
   const extAttemptsHtml = extAttempts.length
-    ? `<details style="margin-top:0.5rem;">
-        <summary>External IP probe</summary>
+    ? `<sl-details summary="External IP probe" style="margin-top:0.5rem;">
         <div class="mono" style="margin-top:0.35rem;">
           ${extAttempts.map(a => {
             const service = a && a.service ? String(a.service) : '-';
@@ -1273,7 +1253,7 @@ function renderCallbookStatus() {
             return esc(`${service}: ${ok ? 'ok' + status : 'failed' + err}`);
           }).join('<br>')}
         </div>
-      </details>`
+      </sl-details>`
     : '';
 
   el.innerHTML = `
@@ -1295,18 +1275,18 @@ function renderAutoUpdateStatus() {
 
   const au = state.autoUpdate;
   if (!au) {
-    el.textContent = 'Loading…';
+    el.textContent = 'Loading\u2026';
     if (toggleBtn) toggleBtn.disabled = true;
     return;
   }
 
   const stateText = formatUpdaterState(au.state);
-  const pillClass = updaterPillClass(au.state);
+  const variant = badgeVariant(au.state);
   const enabled = Boolean(au.enabled);
   const intervalSec = Number.isFinite(au.interval_ms) ? Math.floor(au.interval_ms / 1000) : null;
 
   el.innerHTML = `
-    <div><strong>Status:</strong> <span class="status-pill ${pillClass}">${esc(stateText)}</span></div>
+    <div><strong>Status:</strong> <sl-badge variant="${variant}">${esc(stateText)}</sl-badge></div>
     <div><strong>Enabled:</strong> ${enabled ? 'yes' : 'no'}</div>
     <div><strong>Current version:</strong> <span class="mono">${esc(au.current_version || '-')}</span></div>
     <div><strong>Latest version:</strong> <span class="mono">${esc(au.latest_version || '-')}</span></div>
@@ -1365,13 +1345,13 @@ function renderCallbookDevices() {
       <td>${esc(String(sessions))}</td>
       <td>${revoked ? esc(fmtDate(dev.revoked_at)) : '-'}</td>
       <td>
-        <button data-revoke="${esc(dev.id)}" ${revoked ? 'disabled' : ''}>Revoke</button>
+        <sl-button size="small" variant="danger" data-revoke="${esc(dev.id)}" ${revoked ? 'disabled' : ''}>Revoke</sl-button>
       </td>
     `;
     tbody.appendChild(tr);
   });
 
-  tbody.querySelectorAll('button[data-revoke]').forEach(btn => {
+  tbody.querySelectorAll('[data-revoke]').forEach(btn => {
     btn.addEventListener('click', async () => {
       const deviceId = btn.dataset.revoke;
       if (!deviceId) return;
@@ -1492,13 +1472,13 @@ function renderInvites() {
       <td>${invite.tier || '-'}</td>
       <td>${invite.calls_made || 0}${invite.max_calls ? `/${invite.max_calls}` : ''}</td>
       <td>${fmtDate(invite.expires_at)}</td>
-      <td>${invite.revoked ? 'revoked' : 'active'}</td>
-      <td><button data-revoke="${invite.id}" ${invite.revoked ? 'disabled' : ''}>Revoke</button></td>
+      <td><sl-badge variant="${invite.revoked ? 'danger' : 'success'}">${invite.revoked ? 'revoked' : 'active'}</sl-badge></td>
+      <td><sl-button size="small" variant="danger" data-revoke="${invite.id}" ${invite.revoked ? 'disabled' : ''}>Revoke</sl-button></td>
     `;
     tbody.appendChild(tr);
   });
 
-  tbody.querySelectorAll('button[data-revoke]').forEach(btn => {
+  tbody.querySelectorAll('[data-revoke]').forEach(btn => {
     btn.addEventListener('click', async () => {
       const tokenId = btn.dataset.revoke;
       await request(`/invites/${encodeURIComponent(tokenId)}/revoke`, { method: 'POST' });
@@ -1515,26 +1495,15 @@ async function loadInvites() {
 }
 
 function bindInviteActions() {
-  const toggleBtn = document.getElementById('generate-invite-toggle');
-  const inviteCard = document.getElementById('generate-invite-card');
   const cancelBtn = document.getElementById('generate-invite-cancel');
+  const inviteDetails = document.getElementById('generate-invite-details');
   const inviteMessageWrap = document.getElementById('invite-message-wrap');
   const inviteMessage = document.getElementById('invite-message');
 
-  // Toggle button to show/hide Generate Invite form
-  if (toggleBtn && inviteCard) {
-    toggleBtn.addEventListener('click', () => {
-      const isHidden = inviteCard.style.display === 'none';
-      inviteCard.style.display = isHidden ? 'block' : 'none';
-      toggleBtn.style.display = isHidden ? 'none' : 'block';
-    });
-  }
-
-  // Cancel button collapses the form
-  if (cancelBtn && inviteCard && toggleBtn) {
+  // Cancel button collapses the sl-details
+  if (cancelBtn && inviteDetails) {
     cancelBtn.addEventListener('click', () => {
-      inviteCard.style.display = 'none';
-      toggleBtn.style.display = 'block';
+      inviteDetails.open = false;
     });
   }
 
@@ -1557,9 +1526,8 @@ function bindInviteActions() {
       inviteMessage.value = result.invite_message || result.invite_url;
       if (inviteMessageWrap) inviteMessageWrap.style.display = 'block';
     }
-    // Collapse the form after successful creation
-    if (inviteCard) inviteCard.style.display = 'none';
-    if (toggleBtn) toggleBtn.style.display = 'block';
+    // Collapse the details after successful creation
+    if (inviteDetails) inviteDetails.open = false;
     if (result.warnings && result.warnings.length) {
       showNotice(result.warnings[0]);
     } else {
@@ -1588,6 +1556,10 @@ function bindLogFilterRefresh() {
   ].forEach(id => {
     const el = document.getElementById(id);
     if (!el) return;
+    // Shoelace components fire sl-input and sl-change events
+    el.addEventListener('sl-input', schedule);
+    el.addEventListener('sl-change', schedule);
+    // Also listen for native events as fallback
     el.addEventListener('input', schedule);
     el.addEventListener('change', schedule);
   });
@@ -1598,7 +1570,11 @@ function bindLogFilterRefresh() {
 let pollTimer = null;
 
 function getActiveTab() {
-  return document.querySelector('.tab.is-active')?.dataset?.tab || 'contacts';
+  const tabGroup = document.getElementById('main-tabs');
+  if (!tabGroup) return 'contacts';
+  // Shoelace tab group: find the active tab by checking which tab has the active attribute
+  const activeTab = tabGroup.querySelector('sl-tab[active]');
+  return activeTab ? activeTab.getAttribute('panel') : 'contacts';
 }
 
 const tabLoaders = {

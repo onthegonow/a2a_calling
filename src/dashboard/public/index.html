@@ -4,6 +4,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>A2A Dashboard</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@shoelace-style/shoelace@2.19/cdn/themes/light.css" />
+  <script type="module" src="https://cdn.jsdelivr.net/npm/@shoelace-style/shoelace@2.19/cdn/shoelace-autoloader.js"></script>
   <link rel="stylesheet" href="./style.css">
 </head>
 <body>
@@ -12,235 +14,235 @@
     <p>Contacts, calls, settings, and invites.</p>
   </header>
 
-  <nav>
-    <button class="tab is-active" data-tab="contacts">Contacts</button>
-    <button class="tab" data-tab="calls">Calls</button>
-    <button class="tab" data-tab="settings">Settings</button>
-    <button class="tab" data-tab="invites">Invites</button>
-    <button class="tab" data-tab="logs">Logs</button>
-  </nav>
-
   <main>
-    <section id="tab-contacts" class="panel is-active">
-      <h2>Contacts</h2>
+    <sl-tab-group id="main-tabs">
+      <sl-tab slot="nav" panel="contacts" active>Contacts</sl-tab>
+      <sl-tab slot="nav" panel="calls">Calls</sl-tab>
+      <sl-tab slot="nav" panel="settings">Settings</sl-tab>
+      <sl-tab slot="nav" panel="invites">Invites</sl-tab>
+      <sl-tab slot="nav" panel="logs">Logs</sl-tab>
 
-      <button id="add-contact-toggle" class="add-contact-toggle" type="button">+ Add Contact</button>
-      <div id="add-contact-card" class="card add-contact-card" style="display:none;">
-        <h3>Add Contact</h3>
-        <form id="add-contact-form">
-          <label>Invite URL <input id="add-contact-url" type="text" placeholder="a2a://host/token" required></label>
-          <label>Agent name <input id="add-contact-name" type="text" placeholder="Agent name (optional)"></label>
-          <label>Owner name <input id="add-contact-owner" type="text" placeholder="Human owner (optional)"></label>
-          <label><input id="add-contact-mine" type="checkbox"> Mark as mine (personal agent)</label>
-          <label>Server name (my agents only) <input id="add-contact-server-name" type="text" placeholder="Server label (optional)"></label>
-          <label>Tags <input id="add-contact-tags" type="text" placeholder="comma,separated (optional)"></label>
-          <label>Notes <textarea id="add-contact-notes" rows="3" placeholder="Notes (optional)"></textarea></label>
-          <label>Fields (JSON) <textarea id="add-contact-fields" rows="4" placeholder='{"email":"...","company":"..."} (optional)'></textarea></label>
-          <div class="row">
-            <button type="submit">Add</button>
-            <button id="add-contact-cancel" type="button">Cancel</button>
-          </div>
-        </form>
-      </div>
+      <sl-tab-panel name="contacts">
+        <h2>Contacts</h2>
 
-      <div id="contacts-sections"></div>
-      <div id="contact-detail" class="card"></div>
-    </section>
+        <sl-details id="add-contact-details" summary="+ Add Contact">
+          <form id="add-contact-form">
+            <sl-input id="add-contact-url" label="Invite URL" placeholder="a2a://host/token" required></sl-input>
+            <sl-input id="add-contact-name" label="Agent name" placeholder="Agent name (optional)"></sl-input>
+            <sl-input id="add-contact-owner" label="Owner name" placeholder="Human owner (optional)"></sl-input>
+            <sl-checkbox id="add-contact-mine">Mark as mine (personal agent)</sl-checkbox>
+            <sl-input id="add-contact-server-name" label="Server name (my agents only)" placeholder="Server label (optional)"></sl-input>
+            <sl-input id="add-contact-tags" label="Tags" placeholder="comma,separated (optional)"></sl-input>
+            <sl-textarea id="add-contact-notes" label="Notes" rows="3" placeholder="Notes (optional)"></sl-textarea>
+            <sl-textarea id="add-contact-fields" label="Fields (JSON)" rows="4" placeholder='{"email":"...","company":"..."} (optional)'></sl-textarea>
+            <div class="row">
+              <sl-button type="submit" variant="primary">Add</sl-button>
+              <sl-button id="add-contact-cancel" variant="default">Cancel</sl-button>
+            </div>
+          </form>
+        </sl-details>
 
-    <section id="tab-calls" class="panel">
-      <h2>Calls</h2>
-      <table id="calls-table">
-        <thead>
-          <tr>
-            <th>Conversation</th>
-            <th>Contact</th>
-            <th>Status</th>
-            <th>Messages</th>
-            <th>Updated</th>
-            <th>Summary</th>
-          </tr>
-        </thead>
-        <tbody></tbody>
-      </table>
-      <div id="call-detail"></div>
-    </section>
+        <div id="contacts-sections"></div>
+        <sl-card id="contact-detail"></sl-card>
+      </sl-tab-panel>
 
-    <section id="tab-settings" class="panel">
-      <h2>Tier Settings</h2>
-      <div class="row">
-        <label for="tier-select">Tier</label>
-        <select id="tier-select"></select>
-        <button id="new-tier-btn">New Tier</button>
-      </div>
-
-      <form id="tier-form">
-        <label>Tier ID <input id="tier-id" type="text" readonly></label>
-        <label>Name <input id="tier-name" type="text"></label>
-        <label>Description <input id="tier-description" type="text"></label>
-        <label>Disclosure <input id="tier-disclosure" type="text" placeholder="minimal"></label>
-        <label>Allowed Tools (one per line)<textarea id="tier-tools" rows="5" placeholder="Read&#10;Grep&#10;Glob"></textarea></label>
-        <label>Topics (one per line)<textarea id="tier-topics" rows="6"></textarea></label>
-        <label>Goals (one per line)<textarea id="tier-goals" rows="6"></textarea></label>
-        <div class="row">
-          <button type="submit">Save Tier</button>
-        </div>
-      </form>
-
-      <div class="row">
-        <label for="copy-from-tier">Copy from</label>
-        <select id="copy-from-tier"></select>
-        <button id="copy-tier-btn">Copy Tier</button>
-      </div>
-
-      <h3>Defaults</h3>
-      <form id="defaults-form">
-        <label>Expiration <input id="defaults-expiration" type="text" placeholder="7d"></label>
-        <label>Max Calls <input id="defaults-max-calls" type="number" min="1"></label>
-        <div class="row">
-          <button type="submit">Save Defaults</button>
-        </div>
-      </form>
-
-      <h3>New Tier</h3>
-      <form id="new-tier-form">
-        <label>Tier ID <input id="new-tier-id" type="text" placeholder="partners"></label>
-        <label>Name <input id="new-tier-name" type="text" placeholder="Partners"></label>
-        <label>Copy from
-          <select id="new-tier-copy-from">
-            <option value="">None</option>
-          </select>
-        </label>
-        <div class="row">
-          <button type="submit">Create Tier</button>
-        </div>
-      </form>
-
-      <h3>Remote Callbook</h3>
-      <div id="callbook-status" class="card"></div>
-
-      <h3>Auto Update</h3>
-      <div id="auto-update-status" class="card">Loading…</div>
-      <div class="row">
-        <button id="auto-update-check" type="button">Check now</button>
-        <button id="auto-update-now" type="button">Update now</button>
-        <button id="auto-update-toggle" type="button">Disable auto-update</button>
-      </div>
-
-      <form id="callbook-provision-form" class="card">
-        <div class="row">
-          <button type="submit">Create Install Link (24h)</button>
-          <button id="callbook-logout" type="button">Logout This Browser</button>
-        </div>
-        <label>Device label <input id="callbook-label" type="text" value="Callbook Remote"></label>
-        <label>Install URL<textarea id="callbook-install-url" rows="3" readonly></textarea></label>
-        <div class="row">
-          <button id="callbook-copy-url" type="button">Copy Link</button>
-        </div>
-        <div id="callbook-warnings" class="mono"></div>
-      </form>
-
-      <div class="card">
-        <div class="row">
-          <strong>Paired Devices</strong>
-        </div>
-        <table id="callbook-devices-table">
+      <sl-tab-panel name="calls">
+        <h2>Calls</h2>
+        <table id="calls-table">
           <thead>
             <tr>
-              <th>Label</th>
-              <th>Created</th>
-              <th>Last Used</th>
-              <th>Sessions</th>
-              <th>Revoked</th>
+              <th>Conversation</th>
+              <th>Contact</th>
+              <th>Status</th>
+              <th>Messages</th>
+              <th>Updated</th>
+              <th>Summary</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+        <div id="call-detail"></div>
+      </sl-tab-panel>
+
+      <sl-tab-panel name="settings">
+        <h2>Tier Settings</h2>
+        <div class="row">
+          <label for="tier-select">Tier</label>
+          <sl-select id="tier-select" size="small" style="min-width:200px;"></sl-select>
+          <sl-button id="new-tier-btn" size="small">New Tier</sl-button>
+        </div>
+
+        <form id="tier-form">
+          <sl-input id="tier-id" label="Tier ID" readonly></sl-input>
+          <sl-input id="tier-name" label="Name"></sl-input>
+          <sl-input id="tier-description" label="Description"></sl-input>
+          <sl-input id="tier-disclosure" label="Disclosure" placeholder="minimal"></sl-input>
+          <sl-textarea id="tier-tools" label="Allowed Tools (one per line)" rows="5" placeholder="Read&#10;Grep&#10;Glob"></sl-textarea>
+          <sl-textarea id="tier-topics" label="Topics (one per line)" rows="6"></sl-textarea>
+          <sl-textarea id="tier-goals" label="Goals (one per line)" rows="6"></sl-textarea>
+          <div class="row">
+            <sl-button type="submit" variant="primary">Save Tier</sl-button>
+          </div>
+        </form>
+
+        <div class="row">
+          <label for="copy-from-tier">Copy from</label>
+          <sl-select id="copy-from-tier" size="small" style="min-width:200px;"></sl-select>
+          <sl-button id="copy-tier-btn" size="small">Copy Tier</sl-button>
+        </div>
+
+        <h3>Defaults</h3>
+        <form id="defaults-form">
+          <sl-input id="defaults-expiration" label="Expiration" placeholder="7d"></sl-input>
+          <sl-input id="defaults-max-calls" label="Max Calls" type="number" min="1"></sl-input>
+          <div class="row">
+            <sl-button type="submit" variant="primary">Save Defaults</sl-button>
+          </div>
+        </form>
+
+        <h3>New Tier</h3>
+        <form id="new-tier-form">
+          <sl-input id="new-tier-id" label="Tier ID" placeholder="partners"></sl-input>
+          <sl-input id="new-tier-name" label="Name" placeholder="Partners"></sl-input>
+          <label>Copy from
+            <sl-select id="new-tier-copy-from" size="small">
+              <sl-option value="">None</sl-option>
+            </sl-select>
+          </label>
+          <div class="row">
+            <sl-button type="submit" variant="primary">Create Tier</sl-button>
+          </div>
+        </form>
+
+        <h3>Remote Callbook</h3>
+        <sl-card id="callbook-status"></sl-card>
+
+        <h3>Auto Update</h3>
+        <sl-card id="auto-update-status">Loading...</sl-card>
+        <div class="row">
+          <sl-button id="auto-update-check" size="small">Check now</sl-button>
+          <sl-button id="auto-update-now" size="small">Update now</sl-button>
+          <sl-button id="auto-update-toggle" size="small">Disable auto-update</sl-button>
+        </div>
+
+        <sl-card>
+          <form id="callbook-provision-form">
+            <div class="row">
+              <sl-button type="submit" variant="primary" size="small">Create Install Link (24h)</sl-button>
+              <sl-button id="callbook-logout" size="small" variant="default">Logout This Browser</sl-button>
+            </div>
+            <sl-input id="callbook-label" label="Device label" value="Callbook Remote"></sl-input>
+            <sl-textarea id="callbook-install-url" label="Install URL" rows="3" readonly></sl-textarea>
+            <div class="row">
+              <sl-button id="callbook-copy-url" size="small">Copy Link</sl-button>
+            </div>
+            <div id="callbook-warnings" class="mono"></div>
+          </form>
+        </sl-card>
+
+        <sl-card>
+          <div class="row">
+            <strong>Paired Devices</strong>
+          </div>
+          <table id="callbook-devices-table">
+            <thead>
+              <tr>
+                <th>Label</th>
+                <th>Created</th>
+                <th>Last Used</th>
+                <th>Sessions</th>
+                <th>Revoked</th>
+                <th>Action</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </sl-card>
+      </sl-tab-panel>
+
+      <sl-tab-panel name="invites">
+        <sl-details id="generate-invite-details" summary="+ Generate Invite">
+          <form id="invite-form">
+            <sl-input id="invite-name" label="Name" required></sl-input>
+            <sl-input id="invite-owner" label="Owner"></sl-input>
+            <label>Tier <sl-select id="invite-tier" size="small"></sl-select></label>
+            <sl-input id="invite-expires" label="Expires" value="7d"></sl-input>
+            <sl-input id="invite-max-calls" label="Max Calls" type="number" min="1" value="100"></sl-input>
+            <sl-input id="invite-notify" label="Notify" value="all"></sl-input>
+            <div class="row">
+              <sl-button type="submit" variant="primary">Create Invite</sl-button>
+              <sl-button id="generate-invite-cancel" variant="default">Cancel</sl-button>
+            </div>
+          </form>
+        </sl-details>
+
+        <div id="invite-message-wrap" style="display:none;">
+          <label>Invite Message</label>
+          <sl-textarea id="invite-message" rows="8" readonly></sl-textarea>
+        </div>
+
+        <h3>Existing Invites</h3>
+        <table id="invites-table">
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Name</th>
+              <th>Tier</th>
+              <th>Calls</th>
+              <th>Expires</th>
+              <th>Status</th>
               <th>Action</th>
             </tr>
           </thead>
           <tbody></tbody>
         </table>
-      </div>
-    </section>
+      </sl-tab-panel>
 
-    <section id="tab-invites" class="panel">
-      <button id="generate-invite-toggle" class="add-contact-toggle" type="button">+ Generate Invite</button>
-      <div id="generate-invite-card" class="card add-contact-card" style="display:none;">
-        <h3>Generate Invite</h3>
-        <form id="invite-form">
-          <label>Name <input id="invite-name" type="text" required></label>
-          <label>Owner <input id="invite-owner" type="text"></label>
-          <label>Tier <select id="invite-tier"></select></label>
-          <label>Expires <input id="invite-expires" type="text" value="7d"></label>
-          <label>Max Calls <input id="invite-max-calls" type="number" min="1" value="100"></label>
-          <label>Notify <input id="invite-notify" type="text" value="all"></label>
-          <div class="row">
-            <button type="submit">Create Invite</button>
-            <button id="generate-invite-cancel" type="button">Cancel</button>
-          </div>
-        </form>
-      </div>
+      <sl-tab-panel name="logs">
+        <h2>Logs</h2>
 
-      <label id="invite-message-wrap" style="display:none;">Invite Message<textarea id="invite-message" rows="8" readonly></textarea></label>
+        <div class="filters">
+          <label>Level
+            <sl-select id="logs-level" size="small" clearable>
+              <sl-option value="trace">trace</sl-option>
+              <sl-option value="debug">debug</sl-option>
+              <sl-option value="info">info</sl-option>
+              <sl-option value="warn">warn</sl-option>
+              <sl-option value="error">error</sl-option>
+            </sl-select>
+          </label>
+          <sl-input id="logs-component" label="Component" size="small" placeholder="a2a.routes"></sl-input>
+          <sl-input id="logs-event" label="Event" size="small" placeholder="invoke"></sl-input>
+          <sl-input id="logs-trace" label="Trace ID" size="small" placeholder="a2a_..."></sl-input>
+          <sl-input id="logs-conversation" label="Conversation ID" size="small" placeholder="conv_..."></sl-input>
+          <sl-input id="logs-token" label="Token ID" size="small" placeholder="tok_..."></sl-input>
+          <sl-input id="logs-search" label="Search" size="small" placeholder="text"></sl-input>
+          <sl-input id="logs-limit" label="Limit" type="number" size="small" min="1" max="1000" value="200"></sl-input>
+        </div>
 
-      <h3>Existing Invites</h3>
-      <table id="invites-table">
-        <thead>
-          <tr>
-            <th>ID</th>
-            <th>Name</th>
-            <th>Tier</th>
-            <th>Calls</th>
-            <th>Expires</th>
-            <th>Status</th>
-            <th>Action</th>
-          </tr>
-        </thead>
-        <tbody></tbody>
-      </table>
-    </section>
+        <sl-card id="log-stats"></sl-card>
 
-    <section id="tab-logs" class="panel">
-      <h2>Logs</h2>
+        <table id="logs-table">
+          <thead>
+            <tr>
+              <th>Time</th>
+              <th>Level</th>
+              <th>Component</th>
+              <th>Event</th>
+              <th>Message</th>
+              <th>Trace</th>
+              <th>Conv</th>
+              <th>Tok</th>
+              <th>Code</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
 
-      <div class="filters">
-        <label>Level
-          <select id="logs-level">
-            <option value="">(any)</option>
-            <option value="trace">trace</option>
-            <option value="debug">debug</option>
-            <option value="info">info</option>
-            <option value="warn">warn</option>
-            <option value="error">error</option>
-          </select>
-        </label>
-        <label>Component <input id="logs-component" type="text" placeholder="a2a.routes"></label>
-        <label>Event <input id="logs-event" type="text" placeholder="invoke"></label>
-        <label>Trace ID <input id="logs-trace" type="text" placeholder="a2a_..."></label>
-        <label>Conversation ID <input id="logs-conversation" type="text" placeholder="conv_..."></label>
-        <label>Token ID <input id="logs-token" type="text" placeholder="tok_..."></label>
-        <label>Search <input id="logs-search" type="text" placeholder="text"></label>
-        <label>Limit <input id="logs-limit" type="number" min="1" max="1000" value="200"></label>
-      </div>
-
-      <div id="log-stats" class="card"></div>
-
-      <table id="logs-table">
-        <thead>
-          <tr>
-            <th>Time</th>
-            <th>Level</th>
-            <th>Component</th>
-            <th>Event</th>
-            <th>Message</th>
-            <th>Trace</th>
-            <th>Conv</th>
-            <th>Tok</th>
-            <th>Code</th>
-            <th>Status</th>
-          </tr>
-        </thead>
-        <tbody></tbody>
-      </table>
-
-      <div id="trace-detail" class="card"></div>
-    </section>
+        <sl-card id="trace-detail"></sl-card>
+      </sl-tab-panel>
+    </sl-tab-group>
 
     <div id="notice"></div>
   </main>
