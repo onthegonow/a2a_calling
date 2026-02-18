@@ -307,6 +307,35 @@ function contactLabel(contact) {
   return String(contact?.name || '').trim() || String(contact?.host || '').trim() || '-';
 }
 
+function getPinnedContacts() {
+  try {
+    const raw = localStorage.getItem('a2a-pinned-contacts');
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (err) {
+    return [];
+  }
+}
+
+function togglePin(contactId) {
+  const id = String(contactId || '');
+  if (!id) return;
+  const pinned = getPinnedContacts();
+  const index = pinned.indexOf(id);
+  if (index >= 0) {
+    pinned.splice(index, 1);
+  } else {
+    pinned.push(id);
+  }
+  try {
+    localStorage.setItem('a2a-pinned-contacts', JSON.stringify(pinned));
+  } catch (err) {
+    // localStorage may be unavailable
+  }
+  renderContacts();
+}
+
 function renderContacts() {
   const el = document.getElementById('contacts-sections');
   if (!el) return;
@@ -318,29 +347,17 @@ function renderContacts() {
     .filter(c => isMine(c))
     .sort((a, b) => contactLabel(a).localeCompare(contactLabel(b)));
 
+  const pinnedIds = getPinnedContacts();
   const lastCalled = contacts
-    .filter(c => c && c.last_call_at)
-    .sort((a, b) => String(b.last_call_at || '').localeCompare(String(a.last_call_at || '')))
+    .filter(c => c && c.last_call_at && !isMine(c))
+    .sort((a, b) => {
+      const aPinned = pinnedIds.includes(String(a.id));
+      const bPinned = pinnedIds.includes(String(b.id));
+      if (aPinned && !bPinned) return -1;
+      if (!aPinned && bPinned) return 1;
+      return String(b.last_call_at || '').localeCompare(String(a.last_call_at || ''));
+    })
     .slice(0, 12);
-
-  const groups = new Map();
-  for (const c of contacts) {
-    const owner = String(c?.owner || '').trim() || '(unknown owner)';
-    if (!groups.has(owner)) groups.set(owner, []);
-    groups.get(owner).push(c);
-  }
-
-  const owners = Array.from(groups.keys()).sort((a, b) => {
-    // Keep local owner group near the top (after the dedicated "My agents" section).
-    const local = norm(getLocalOwnerName());
-    const aIsLocal = local && norm(a) === local;
-    const bIsLocal = local && norm(b) === local;
-    if (aIsLocal && !bIsLocal) return -1;
-    if (!aIsLocal && bIsLocal) return 1;
-    if (a === '(unknown owner)' && b !== '(unknown owner)') return 1;
-    if (a !== '(unknown owner)' && b === '(unknown owner)') return -1;
-    return a.localeCompare(b);
-  });
 
   const rowHtml = (c, opts = {}) => {
     const canCall = Boolean(c?.can_call);
@@ -350,8 +367,12 @@ function renderContacts() {
     const lastCallAt = c?.last_call_at ? fmtDate(c.last_call_at) : '-';
     const calls = Number.isFinite(c?.call_count) ? c.call_count : (c?.call_count || 0);
     const isSelected = selected && String(c?.id) === selected;
+    const isPinned = pinnedIds.includes(String(c?.id));
 
     const actionBits = [];
+    if (opts.showPin) {
+      actionBits.push(`<button class="pin-btn${isPinned ? ' pinned' : ''}" data-pin-contact="${esc(c.id)}" type="button" title="${isPinned ? 'Unpin' : 'Pin to top'}">${isPinned ? '\u{1F4CC}' : '\u{1F4CD}'}</button>`);
+    }
     if (c?.last_call_id) {
       actionBits.push(`<button data-open-call="${esc(c.last_call_id)}" type="button">Transcript</button>`);
     }
@@ -409,12 +430,26 @@ function renderContacts() {
   const lastCalledSection = `
     <div class="card">
       <h3>Last called agents</h3>
-      ${tableHtml(lastCalled, { showLocation: false, showOwner: true, showSummary: false })}
+      ${tableHtml(lastCalled, { showLocation: false, showOwner: true, showSummary: false, showPin: true })}
     </div>
   `;
 
-  const groupedSections = owners.map(owner => {
-    const rows = (groups.get(owner) || []).slice().sort((a, b) => contactLabel(a).localeCompare(contactLabel(b)));
+  const otherContacts = contacts.filter(c => !isMine(c));
+  const otherGroups = new Map();
+  for (const c of otherContacts) {
+    const owner = String(c?.owner || '').trim() || '(unknown owner)';
+    if (!otherGroups.has(owner)) otherGroups.set(owner, []);
+    otherGroups.get(owner).push(c);
+  }
+
+  const otherOwners = Array.from(otherGroups.keys()).sort((a, b) => {
+    if (a === '(unknown owner)' && b !== '(unknown owner)') return 1;
+    if (a !== '(unknown owner)' && b === '(unknown owner)') return -1;
+    return a.localeCompare(b);
+  });
+
+  const groupedSections = otherOwners.map(owner => {
+    const rows = (otherGroups.get(owner) || []).slice().sort((a, b) => contactLabel(a).localeCompare(contactLabel(b)));
     return `
       <div class="card">
         <h3>${esc(owner)}</h3>
@@ -423,7 +458,11 @@ function renderContacts() {
     `;
   }).join('');
 
-  el.innerHTML = `${myAgentsSection}${lastCalledSection}${groupedSections}`;
+  const otherAgentsHeading = otherOwners.length
+    ? `<h3 style="margin-top:1rem;">Other Agents</h3>`
+    : '';
+
+  el.innerHTML = `${myAgentsSection}${lastCalledSection}${otherAgentsHeading}${groupedSections}`;
 }
 
 async function loadContacts() {
@@ -436,6 +475,25 @@ async function loadContacts() {
 function bindContactsActions() {
   const form = document.getElementById('add-contact-form');
   if (!form) return;
+
+  // Toggle button to show/hide Add Contact form
+  const toggleBtn = document.getElementById('add-contact-toggle');
+  const addCard = document.getElementById('add-contact-card');
+  if (toggleBtn && addCard) {
+    toggleBtn.addEventListener('click', () => {
+      const isHidden = addCard.style.display === 'none';
+      addCard.style.display = isHidden ? 'block' : 'none';
+      toggleBtn.style.display = isHidden ? 'none' : 'block';
+    });
+  }
+
+  const cancelBtn = document.getElementById('add-contact-cancel');
+  if (cancelBtn && addCard && toggleBtn) {
+    cancelBtn.addEventListener('click', () => {
+      addCard.style.display = 'none';
+      toggleBtn.style.display = 'block';
+    });
+  }
 
   const urlEl = document.getElementById('add-contact-url');
   const mineEl = document.getElementById('add-contact-mine');
@@ -506,6 +564,9 @@ function bindContactsActions() {
       });
       showNotice('Contact added');
       form.reset();
+      // Collapse the Add Contact form after successful add
+      if (addCard) addCard.style.display = 'none';
+      if (toggleBtn) toggleBtn.style.display = 'block';
       await loadContacts();
     } catch (err) {
       showNotice(err.message);
@@ -514,6 +575,14 @@ function bindContactsActions() {
 
   const panel = document.getElementById('tab-contacts');
   panel?.addEventListener('click', async (e) => {
+    const pinBtn = e.target.closest('button[data-pin-contact]');
+    if (pinBtn) {
+      e.preventDefault();
+      const id = pinBtn.dataset.pinContact;
+      if (id) togglePin(id);
+      return;
+    }
+
     const selectBtn = e.target.closest('button[data-contact-select]');
     if (selectBtn) {
       e.preventDefault();

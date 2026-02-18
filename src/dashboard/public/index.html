@@ -27,7 +27,8 @@
         <button id="refresh-contacts">Refresh</button>
       </div>
 
-      <div class="card">
+      <button id="add-contact-toggle" class="add-contact-toggle" type="button">+ Add Contact</button>
+      <div id="add-contact-card" class="card add-contact-card" style="display:none;">
         <h3>Add Contact</h3>
         <form id="add-contact-form">
           <label>Invite URL <input id="add-contact-url" type="text" placeholder="a2a://host/token" required></label>
@@ -40,6 +41,7 @@
           <label>Fields (JSON) <textarea id="add-contact-fields" rows="4" placeholder='{"email":"...","company":"..."} (optional)'></textarea></label>
           <div class="row">
             <button type="submit">Add</button>
+            <button id="add-contact-cancel" type="button">Cancel</button>
           </div>
         </form>
       </div>
