@@ -2080,6 +2080,7 @@ const tabLoaders = {
   logs: () => { loadLogs(); loadLogStats(); },
   permissions: () => {},
   invites: loadInvites,
+  health: loadHealth,
 };
 
 function startPolling() {
@@ -2100,6 +2101,102 @@ function onTabSwitch(tabName) {
     try { loader().catch(() => {}); } catch (_) {}
   }
   startPolling(); // reset the 5s timer
+}
+
+// === Health Tab (A2A-42) ===
+
+// A2A-42: Escape HTML entities for safe innerHTML rendering of step names/errors.
+function escapeHtml(s) {
+  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+async function loadHealth() {
+  try {
+    const data = await request('/test-results');
+    renderHealthLatest(data.latest);
+    renderHealthHistory(data.history || []);
+  } catch (err) {
+    renderHealthLatest(null);
+    renderHealthHistory([]);
+  }
+}
+
+function renderHealthLatest(latest) {
+  const card = document.getElementById('health-latest');
+  if (!card) return;
+
+  if (!latest) {
+    card.innerHTML = '<p>No test results available. Run <code>node test/e2e/orchestrate.js --persist</code> to generate.</p>';
+    return;
+  }
+
+  const statusBadge = latest.status === 'passed'
+    ? '<sl-badge variant="success">PASSED</sl-badge>'
+    : '<sl-badge variant="danger">FAILED</sl-badge>';
+
+  const regression = latest.regression;
+  let regressionHtml = '';
+  if (regression && regression.detected) {
+    regressionHtml = `<p><sl-badge variant="warning">REGRESSION</sl-badge> New failures: ${regression.newFailures.map(escapeHtml).join(', ')}</p>`;
+  }
+  if (regression && regression.fixedTests && regression.fixedTests.length > 0) {
+    regressionHtml += `<p><sl-badge variant="success">FIXED</sl-badge> ${regression.fixedTests.map(escapeHtml).join(', ')}</p>`;
+  }
+
+  const ts = latest.finishedAt ? new Date(latest.finishedAt).toLocaleString() : 'unknown';
+  const summary = latest.summary || {};
+
+  card.innerHTML = `
+    <div class="row">
+      <strong>Latest Run</strong> ${statusBadge}
+    </div>
+    <p><strong>Duration:</strong> ${latest.duration || 0}ms &middot;
+       <strong>Passed:</strong> ${summary.passed || 0} &middot;
+       <strong>Failed:</strong> ${summary.failed || 0} &middot;
+       <strong>Skipped:</strong> ${summary.skipped || 0} &middot;
+       <strong>Time:</strong> ${ts}</p>
+    ${regressionHtml}
+    <details>
+      <summary>Steps (${(latest.steps || []).length})</summary>
+      <ul>
+        ${(latest.steps || []).map(s => {
+          const icon = s.status === 'pass' ? '&#x2705;' : s.status === 'fail' ? '&#x274C;' : '&#x23ED;';
+          const err = s.error ? ` — <code>${escapeHtml(String(s.error).slice(0, 120))}</code>` : '';
+          return `<li>${icon} ${escapeHtml(s.name)}${err}</li>`;
+        }).join('')}
+      </ul>
+    </details>
+  `;
+}
+
+function renderHealthHistory(history) {
+  const tbody = document.querySelector('#health-history-table tbody');
+  if (!tbody) return;
+
+  if (!history || history.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="6">No history</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = history.map(r => {
+    const badge = r.status === 'passed'
+      ? '<sl-badge variant="success" size="small">PASS</sl-badge>'
+      : '<sl-badge variant="danger" size="small">FAIL</sl-badge>';
+    const summary = r.summary || {};
+    const regression = r.regression;
+    const regText = regression && regression.detected
+      ? `<sl-badge variant="warning" size="small">${regression.newFailures.length} new</sl-badge>`
+      : '-';
+    const ts = r.finishedAt ? new Date(r.finishedAt).toLocaleString() : '-';
+    return `<tr>
+      <td>${badge}</td>
+      <td>${r.duration || 0}ms</td>
+      <td>${summary.passed || 0}</td>
+      <td>${summary.failed || 0}</td>
+      <td>${regText}</td>
+      <td>${ts}</td>
+    </tr>`;
+  }).join('');
 }
 
 async function bootstrap() {

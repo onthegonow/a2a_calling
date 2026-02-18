@@ -448,6 +448,16 @@ function createDashboardApiRouter(options = {}) {
   const router = express.Router();
   const context = buildContext(options);
   router.use(express.json());
+
+  // A2A-42: Load E2E persist layer for Health tab. Gracefully null if not available
+  // (e.g., installed as npm package without test files).
+  let persistModule = null;
+  try {
+    persistModule = require(path.join(__dirname, '..', '..', 'test', 'e2e', 'persist'));
+  } catch {
+    // test/e2e/persist.js not available — Health tab will show "no results"
+  }
+
   const ensureDashboardAccess = makeEnsureDashboardAccess(context);
   const writeSseEvent = (res, event) => {
     const eventName = sanitizeString(event?.type || 'message', 80) || 'message';
@@ -881,6 +891,38 @@ function createDashboardApiRouter(options = {}) {
       to: req.query.to || null
     });
     return res.json({ success: true, stats });
+  });
+
+  // A2A-42: Serve E2E test results for the Health tab.
+  // Reads from local persist layer — no external dependencies.
+  router.get('/test-results', (req, res) => {
+    if (!persistModule) {
+      return res.json({
+        success: true,
+        latest: null,
+        history: [],
+        has_results: false,
+        message: 'Test results module not available'
+      });
+    }
+
+    const latest = persistModule.getLatest();
+    const limit = Math.min(20, Math.max(1, Number.parseInt(req.query.limit || '10', 10) || 10));
+    const history = persistModule.getHistory(limit);
+
+    return res.json({
+      success: true,
+      latest,
+      history: history.map(r => ({
+        status: r.status,
+        duration: r.duration,
+        startedAt: r.startedAt,
+        finishedAt: r.finishedAt,
+        summary: r.summary,
+        regression: r.regression || null
+      })),
+      has_results: latest !== null
+    });
   });
 
   router.get('/debug/call', (req, res) => {
