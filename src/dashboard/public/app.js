@@ -261,7 +261,10 @@ function bindTabs() {
 
   // Deep-link support: activate the tab matching the URL hash
   const activateFromHash = () => {
-    const hash = window.location.hash.slice(1);
+    let hash = window.location.hash.slice(1);
+    // A2A-41: backward-compat alias — old bookmarks/links using #settings
+    // still work after rename to #permissions
+    if (hash === 'settings') hash = 'permissions';
     if (hash) {
       // Use try/catch in case the tab group isn't fully ready
       try { tabGroup.show(hash); } catch (err) {}
@@ -1095,6 +1098,10 @@ async function loadTrace(traceId) {
   renderTraceDetail();
 }
 
+// A2A-41: emoji map for visual tier differentiation. Standard tiers get
+// recognizable icons; custom/user-created tiers get a wrench.
+const TIER_EMOJIS = { public: '\u{1F310}', friends: '\u{1F46B}', family: '\u{1F468}\u200D\u{1F469}\u200D\u{1F467}\u200D\u{1F466}' };
+
 function fillTierSelects() {
   const tiers = (state.settings?.tiers || []).slice().sort((a, b) => a.id.localeCompare(b.id));
   const tierSelect = document.getElementById('tier-select');
@@ -1102,21 +1109,23 @@ function fillTierSelects() {
   const newTierCopy = document.getElementById('new-tier-copy-from');
   const inviteTier = document.getElementById('invite-tier');
 
-  // Build options HTML for sl-select elements
-  const optionsHtml = tiers.map(tier =>
-    `<sl-option value="${esc(tier.id)}">${esc(tier.id)} (${esc(tier.name || tier.id)})</sl-option>`
-  ).join('');
+  const optionsHtml = tiers.map(tier => {
+    const emoji = TIER_EMOJIS[tier.id] || '\u{1F527}';
+    return `<sl-option value="${esc(tier.id)}">${emoji} ${esc(tier.name || tier.id)}</sl-option>`;
+  }).join('');
 
   tierSelect.innerHTML = optionsHtml;
   copyFrom.innerHTML = optionsHtml;
   inviteTier.innerHTML = optionsHtml;
   newTierCopy.innerHTML = `<sl-option value="">None</sl-option>${optionsHtml}`;
 
-  if (tiers.length > 0) {
-    tierSelect.value = tiers[0].id;
-    copyFrom.value = tiers[0].id;
-    inviteTier.value = tiers[0].id;
-    renderTierEditor(tiers[0].id);
+  // A2A-41: default to 'public' — it's the base tier and most commonly edited
+  const defaultTier = tiers.find(t => t.id === 'public') ? 'public' : tiers[0]?.id;
+  if (defaultTier) {
+    tierSelect.value = defaultTier;
+    copyFrom.value = defaultTier;
+    inviteTier.value = defaultTier;
+    renderTierEditor(defaultTier);
   }
 }
 
@@ -1124,10 +1133,8 @@ function renderTierEditor(tierId) {
   const tier = (state.settings?.tiers || []).find(t => t.id === tierId);
   if (!tier) return;
 
-  document.getElementById('tier-id').value = tier.id;
   document.getElementById('tier-name').value = tier.name || tier.id;
   document.getElementById('tier-description').value = tier.description || '';
-  document.getElementById('tier-disclosure').value = tier.disclosure || 'minimal';
   document.getElementById('tier-tools').value = toLines(tier.allowed_tools || []);
   document.getElementById('tier-topics').value = toLines(tier.topics || []);
   document.getElementById('tier-goals').value = toLines(tier.goals || []);
@@ -1140,11 +1147,10 @@ function bindSettingsActions() {
 
   document.getElementById('tier-form').addEventListener('submit', async (e) => {
     e.preventDefault();
-    const tierId = document.getElementById('tier-id').value;
+    const tierId = document.getElementById('tier-select').value;
     const body = {
       name: document.getElementById('tier-name').value,
       description: document.getElementById('tier-description').value,
-      disclosure: document.getElementById('tier-disclosure').value,
       allowed_tools: fromLines(document.getElementById('tier-tools').value),
       topics: fromLines(document.getElementById('tier-topics').value),
       goals: fromLines(document.getElementById('tier-goals').value)
@@ -1158,7 +1164,7 @@ function bindSettingsActions() {
   });
 
   document.getElementById('copy-tier-btn').addEventListener('click', async () => {
-    const toTier = document.getElementById('tier-id').value;
+    const toTier = document.getElementById('tier-select').value;
     const fromTier = document.getElementById('copy-from-tier').value;
     if (!toTier || !fromTier || toTier === fromTier) return;
     await request(`/settings/tiers/${encodeURIComponent(toTier)}/copy-from/${encodeURIComponent(fromTier)}`, {
@@ -1581,7 +1587,7 @@ const tabLoaders = {
   contacts: loadContacts,
   calls: loadCalls,
   logs: () => { loadLogs(); loadLogStats(); },
-  settings: () => {},
+  permissions: () => {},
   invites: loadInvites,
 };
 

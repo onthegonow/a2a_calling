@@ -1682,8 +1682,11 @@ a2a add "${inviteUrl}" "${ownerText || 'friend'}" && a2a call "${ownerText || 'f
   gui: async (args) => {
     // GUI is always safe to open even before onboarding.
     const tab = (args.flags.tab || args.flags.t || '').trim().toLowerCase();
-    const allowedTabs = new Set(['contacts', 'calls', 'logs', 'settings', 'invites']);
-    const hash = allowedTabs.has(tab) ? `#${tab}` : '';
+    // A2A-41: 'settings' remains as backward-compat alias for 'permissions'
+    const tabAliases = { settings: 'permissions' };
+    const resolvedTab = tabAliases[tab] || tab;
+    const allowedTabs = new Set(['contacts', 'calls', 'logs', 'permissions', 'invites']);
+    const hash = allowedTabs.has(resolvedTab) ? `#${resolvedTab}` : '';
 
     const urlFlag = args.flags.url;
     if (urlFlag) {

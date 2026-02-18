@@ -18,7 +18,7 @@
     <sl-tab-group id="main-tabs">
       <sl-tab slot="nav" panel="contacts" active>Contacts</sl-tab>
       <sl-tab slot="nav" panel="calls">Calls</sl-tab>
-      <sl-tab slot="nav" panel="settings">Settings</sl-tab>
+      <sl-tab slot="nav" panel="permissions">Permissions</sl-tab>
       <sl-tab slot="nav" panel="invites">Invites</sl-tab>
       <sl-tab slot="nav" panel="logs">Logs</sl-tab>
 
@@ -64,8 +64,8 @@
         <div id="call-detail"></div>
       </sl-tab-panel>
 
-      <sl-tab-panel name="settings">
-        <h2>Tier Settings</h2>
+      <sl-tab-panel name="permissions">
+        <h2>Permission Tiers</h2>
         <div class="row">
           <label for="tier-select">Tier</label>
           <sl-select id="tier-select" size="small" style="min-width:200px;"></sl-select>
@@ -73,10 +73,8 @@
         </div>
 
         <form id="tier-form">
-          <sl-input id="tier-id" label="Tier ID" readonly></sl-input>
           <sl-input id="tier-name" label="Name"></sl-input>
           <sl-input id="tier-description" label="Description"></sl-input>
-          <sl-input id="tier-disclosure" label="Disclosure" placeholder="minimal"></sl-input>
           <sl-textarea id="tier-tools" label="Allowed Tools (one per line)" rows="5" placeholder="Read&#10;Grep&#10;Glob"></sl-textarea>
           <sl-textarea id="tier-topics" label="Topics (one per line)" rows="6"></sl-textarea>
           <sl-textarea id="tier-goals" label="Goals (one per line)" rows="6"></sl-textarea>
