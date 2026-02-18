@@ -72,7 +72,6 @@ module.exports = function (test, assert, helpers) {
       name: profile.agent.name,
       owner: profile.agent.owner,
       permissions: profile.token.tier,
-      disclosure: profile.token.disclosure,
       maxCalls: profile.token.maxCalls,
       allowedTopics: profile.token.allowedTopics,
       tierSettings: profile.token.tierSettings
@@ -421,7 +420,6 @@ module.exports = function (test, assert, helpers) {
       name: profile.agent.name,
       owner: profile.agent.owner,
       permissions: profile.token.tier,
-      disclosure: profile.token.disclosure,
       allowedTopics: profile.token.allowedTopics,
       tierSettings: profile.token.tierSettings
     });
@@ -439,7 +437,7 @@ module.exports = function (test, assert, helpers) {
     assert.equal(capturedContext.tier, 'friends');
     assert.ok(capturedContext.capabilities);
     assert.includes(capturedContext.capabilities, 'context-read');
-    assert.equal(capturedContext.disclosure, 'public');
+    // A2A-41: disclosure field removed from a2a context
     assert.includes(capturedContext.allowed_topics, 'market-analysis');
     assert.equal(capturedContext.caller.name, 'Golda Deluxe');
     assert.match(capturedContext.conversation_id, /^conv_/);

@@ -106,17 +106,8 @@ function validateTierPatch(tierName, tierConfig) {
     out.description = sanitizeString(tierConfig.description, 300);
   }
 
-  if (tierConfig.disclosure !== undefined) {
-    if (typeof tierConfig.disclosure !== 'string') {
-      throw configValidationError(
-        'A2A_CONFIG_INVALID_TIER_DISCLOSURE',
-        `Invalid tier disclosure for "${tierName}": expected string`,
-        null,
-        { tier: tierName, received_type: typeof tierConfig.disclosure }
-      );
-    }
-    out.disclosure = sanitizeString(tierConfig.disclosure, 40) || 'minimal';
-  }
+  // A2A-41: disclosure field intentionally removed. If present in input,
+  // it is silently ignored for backward compatibility with older clients.
 
   if (tierConfig.capabilities !== undefined) {
     out.capabilities = validateStringArray(tierConfig.capabilities, `${tierName}.capabilities`, {
@@ -183,6 +174,9 @@ const DEFAULT_CONFIG = {
   },
   
   // Permission tiers
+  // A2A-41: disclosure field removed from tiers. It was intended to control
+  // HOW info is shared (freely/minimally/none) but was never consumed by
+  // prompt templates. The disclosure SYSTEM (disclosure.js, manifest) remains.
   tiers: {
     public: {
       name: 'Public',
@@ -191,7 +185,6 @@ const DEFAULT_CONFIG = {
       allowed_tools: ['Read', 'Grep', 'Glob'],
       topics: ['chat'],
       goals: [],
-      disclosure: 'minimal',
       examples: ['calendar availability', 'public social posts', 'general questions']
     },
     friends: {
@@ -201,7 +194,6 @@ const DEFAULT_CONFIG = {
       allowed_tools: ['Bash(readonly)', 'Read', 'Grep', 'Glob', 'WebSearch', 'WebFetch'],
       topics: ['chat', 'search', 'openclaw', 'a2a'],
       goals: [],
-      disclosure: 'public',
       examples: ['email summaries', 'schedule meetings', 'project discussions']
     },
     family: {
@@ -211,7 +203,6 @@ const DEFAULT_CONFIG = {
       allowed_tools: ['Bash', 'Read', 'Grep', 'Glob', 'WebSearch', 'WebFetch'],
       topics: ['chat', 'search', 'openclaw', 'a2a', 'tools', 'memory'],
       goals: [],
-      disclosure: 'public',
       examples: ['deep collaboration', 'private project context', 'personal notes']
     },
     custom: {
@@ -221,7 +212,6 @@ const DEFAULT_CONFIG = {
       allowed_tools: ['Read', 'Grep', 'Glob'],
       topics: [],
       goals: [],
-      disclosure: 'minimal',
       examples: []
     }
   },

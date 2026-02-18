@@ -102,7 +102,7 @@ module.exports = function (test, assert, helpers) {
     assert.deepEqual(record.capabilities, ['context-read']);
     assert.deepEqual(record.allowed_topics, ['chat']);
     assert.deepEqual(record.allowed_goals, []);
-    assert.equal(record.disclosure, 'minimal');
+    // A2A-41: disclosure field removed from tokens
     assert.equal(record.notify, 'all');
     assert.equal(record.max_calls, 100);
     assert.equal(record.calls_made, 0);
@@ -120,7 +120,7 @@ module.exports = function (test, assert, helpers) {
     assert.equal(record.owner, null); // unnamed owner
     assert.equal(record.tier, 'friends');
     assert.deepEqual(record.capabilities, ['context-read', 'calendar.read', 'email.read', 'search']);
-    assert.equal(record.disclosure, 'public');
+    // A2A-41: disclosure field removed from tokens
     assert.equal(record.max_calls, 50);
     assert.deepEqual(record.allowed_topics, profile.token.allowedTopics);
     assert.includes(record.allowed_topics, 'market-analysis');
@@ -232,7 +232,7 @@ module.exports = function (test, assert, helpers) {
     assert.equal(result.tier, 'friends');
     assert.ok(result.capabilities);
     assert.includes(result.capabilities, 'context-read');
-    assert.equal(result.disclosure, 'public');
+    // A2A-41: disclosure field removed from validate() return
     assert.includes(result.allowed_topics, 'market-analysis');
     assert.deepEqual(result.allowed_goals, profile.token.allowedGoals);
     assert.equal(result.calls_remaining, 49); // 50 - 1

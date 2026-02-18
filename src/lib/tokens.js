@@ -189,12 +189,14 @@ class TokenStore {
    * - Timeout: 5-300 seconds (enforced server-side)
    */
   create(options = {}) {
+    // A2A-41: disclosure field removed from tokens. Was never used by
+    // prompt generation. Existing tokens with disclosure field are harmless
+    // — the field is simply not read.
     const {
       name = 'unnamed',
       owner = null,
       expires = '1d',
       permissions = 'public',
-      disclosure = 'minimal',
       notify = 'all',
       maxCalls = 100,  // Default limit, not unlimited
       capabilities = null,  // Array of capability strings, snapshotted at creation
@@ -273,7 +275,6 @@ class TokenStore {
       allowed_tools: allowedTools || defaultTools[tier] || TokenStore.DEFAULT_ALLOWED_TOOLS.public,
       timeout_ms: parsePositiveTimeoutMs(timeoutMs),
       tier_settings: tierSettings || {},  // Snapshot of settings at creation
-      disclosure,
       notify,
       max_calls: maxCalls,
       calls_made: 0,
@@ -359,7 +360,6 @@ class TokenStore {
       allowed_tools: record.allowed_tools || TokenStore.DEFAULT_ALLOWED_TOOLS[tier] || TokenStore.DEFAULT_ALLOWED_TOOLS.public,
       timeout_ms: timeoutMs,
       tier_settings: record.tier_settings || {},
-      disclosure: record.disclosure,
       notify: record.notify,
       calls_remaining: record.max_calls ? record.max_calls - record.calls_made : null
     };

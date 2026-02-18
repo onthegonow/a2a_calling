@@ -350,7 +350,6 @@ function createRoutes(options = {}) {
       allowed_goals: validation.allowed_goals,
       allowed_tools: validation.allowed_tools,
       timeout_ms: validation.timeout_ms,
-      disclosure: validation.disclosure,
       caller: sanitizedCaller,
       conversation_id: conversation_id || `conv_${Date.now()}_${crypto.randomBytes(6).toString('hex')}`,
       trace_id: traceId,
