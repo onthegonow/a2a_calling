@@ -284,13 +284,11 @@ function parseSubagentResponse(resultText) {
  */
 function spawnClaude(args, timeoutMs = HARD_FALLBACK_TURN_TIMEOUT_MS) {
   return new Promise((resolve, reject) => {
+    const spawnEnv = { ...process.env, FORCE_COLOR: '0' };
+    delete spawnEnv.CLAUDECODE;
     const proc = spawn('claude', args, {
-      stdio: ['pipe', 'pipe', 'pipe'],
-      env: {
-        ...process.env,
-        FORCE_COLOR: '0',
-        CLAUDECODE: ''  // Unset to allow nested invocation
-      }
+      stdio: ['ignore', 'pipe', 'pipe'],
+      env: spawnEnv
     });
 
     let stdout = '';
@@ -566,7 +564,7 @@ async function runClaudeTurn(options) {
   if (allowedToolsArg) {
     args.push('--allowedTools', allowedToolsArg);
   }
-  args.push(turnPrompt);
+  args.push('--', turnPrompt);
 
   logger.debug('Spawning Claude subagent turn', {
     event: 'subagent_turn_start',
@@ -646,6 +644,7 @@ async function runClaudeSummary(options = {}) {
   args.push(
     '--append-system-prompt',
     `Conversation summary mode. Reason: ${reason || 'conversation ended'}. Return only structured summary JSON.`,
+    '--',
     summaryPrompt
   );
 
