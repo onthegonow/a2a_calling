@@ -2711,73 +2711,60 @@ a2a add "${inviteUrl}" "${ownerText || 'friend'}" && a2a call "${ownerText || 'f
       console.log('Removing database... ⏭️');
     }
 
-    // ── Remove installed skill files using the manifest ──────────────────
+    // ── Remove installed skill files using the shared cleanup module ──────
     //
-    // The postinstall script writes .a2a-manifest.json listing every file
-    // it installed (CLAUDE.md section, slash commands, skill reference, etc.).
-    // We read the manifest to remove exactly the files we installed, avoiding
-    // accidental deletion of user files. For CLAUDE.md we only remove the
-    // A2A section (bounded by markers), not the entire file.
-    const manifestCwd = process.env.INIT_CWD || process.cwd();
-    const manifestPath = path.join(manifestCwd, '.a2a-manifest.json');
-    if (fs.existsSync(manifestPath)) {
-      process.stdout.write('Removing installed skill files... ');
-      try {
-        const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
-        let skillOk = true;
-        for (const entry of (manifest.files || [])) {
-          const filePath = path.join(manifestCwd, entry.path);
-          // Skip the manifest itself (we remove it last) and non-existent files
-          if (entry.path === '.a2a-manifest.json') continue;
-          if (!fs.existsSync(filePath)) continue;
+    // The postinstall script writes .a2a-manifest.json listing every file it
+    // installed. We delegate to the shared cleanupProjectFiles() function which
+    // handles CLAUDE.md section removal, file deletion, and empty directory
+    // cleanup. This is the same logic used by the npm preuninstall hook,
+    // ensuring both uninstall paths behave identically.
+    //
+    // We check multiple candidate directories for the manifest because `a2a
+    // uninstall` might be run from a different directory than the one where
+    // the package was originally installed.
+    const manifestCandidates = [
+      process.env.INIT_CWD,
+      process.cwd(),
+    ].filter(Boolean);
+    // Deduplicate paths (INIT_CWD and cwd may be identical)
+    const uniqueDirs = [...new Set(manifestCandidates.map(d => path.resolve(d)))];
 
-          // For CLAUDE.md: only remove the A2A section, not the whole file.
-          // The user may have their own project-specific content in CLAUDE.md.
-          if (entry.path === 'CLAUDE.md') {
-            try {
-              const content = fs.readFileSync(filePath, 'utf8');
-              const mergeKey = '# A2A Calling';
-              const endMarker = '<!-- END A2A CALLING SECTION -->';
-              if (content.includes(mergeKey)) {
-                const start = content.indexOf(mergeKey);
-                const endIdx = content.indexOf(endMarker, start);
-                let cleaned;
-                if (endIdx !== -1) {
-                  // Remove the bounded A2A section (header through end marker)
-                  const before = content.slice(0, start).trimEnd();
-                  const after = content.slice(endIdx + endMarker.length).trimStart();
-                  cleaned = before + (after ? '\n\n' + after : '');
-                } else {
-                  // Legacy: no end marker — remove from header to EOF
-                  cleaned = content.slice(0, start).trimEnd();
-                }
-                if (cleaned.trim()) {
-                  fs.writeFileSync(filePath, cleaned.trimEnd() + '\n');
-                } else {
-                  // CLAUDE.md was entirely A2A content — remove the file
-                  fs.rmSync(filePath, { force: true });
-                }
-              }
-            } catch (e) {
-              skillOk = false;
+    let projectCleaned = false;
+    for (const candidateDir of uniqueDirs) {
+      if (fs.existsSync(path.join(candidateDir, '.a2a-manifest.json'))) {
+        process.stdout.write('Removing installed skill files... ');
+        try {
+          const { cleanupProjectFiles } = require('../scripts/cleanup');
+          const cleanResult = cleanupProjectFiles(candidateDir);
+          const hasErrors = cleanResult.errors.length > 0;
+          console.log(hasErrors ? '⚠️' : '✅');
+          if (cleanResult.removed.length > 0) {
+            for (const f of cleanResult.removed) {
+              console.log(`  - ${f}`);
             }
-            continue;
           }
-
-          // For all other files: remove them entirely
-          try {
-            fs.rmSync(filePath, { force: true });
-          } catch (e) {
-            skillOk = false;
+          if (cleanResult.preserved.length > 0) {
+            for (const f of cleanResult.preserved) {
+              console.log(`  ~ ${f}`);
+            }
           }
+          if (hasErrors) {
+            for (const e of cleanResult.errors) {
+              console.error(`  ! ${e}`);
+            }
+          }
+          projectCleaned = true;
+        } catch (err) {
+          console.log('⚠️');
+          console.error(`  Cleanup error: ${err.message}`);
         }
-        // Remove the manifest file itself last
-        fs.rmSync(manifestPath, { force: true });
-        console.log(skillOk ? '✅' : '⚠️');
-      } catch (err) {
-        console.log('⚠️');
-        console.error(`  Could not read manifest: ${err.message}`);
+        break; // Only clean up once — first manifest found wins
       }
+    }
+    if (!projectCleaned) {
+      // No manifest found in any candidate directory. This is expected when
+      // `a2a uninstall` is run after `npm uninstall` (preuninstall already cleaned).
+      console.log('Removing installed skill files... ⏭️  (no manifest found)');
     }
 
     // Remove native macOS app if present
