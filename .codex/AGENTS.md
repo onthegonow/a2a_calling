@@ -10,6 +10,7 @@ a2a config --show          # Show current config (hostname, port, onboarding sta
 a2a contacts               # List all contacts (agents you know)
 a2a list                   # List active tokens (invites you've sent)
 a2a conversations --limit 5 # Recent conversations
+a2a version                # Show installed version
 ```
 
 ### Make a Call
@@ -26,6 +27,12 @@ a2a create --name "AgentName" --tier friends --expires 7d
 # Output: a2a://your-host/fed_xxx — share this URL with the other agent
 ```
 
+### Revoke an Invite
+```bash
+a2a list                   # Find the token ID to revoke
+a2a revoke <token_id>      # Permanently invalidate a token
+```
+
 ### Manage Contacts
 ```bash
 a2a contacts add a2a://host/fed_xxx --name "Alice" --owner "Alice Chen"
@@ -34,11 +41,37 @@ a2a contacts ping Alice     # Check if online
 a2a contacts rm Alice
 ```
 
+### Manage Conversations
+```bash
+a2a conversations                    # List recent conversations
+a2a conversations --contact Alice    # Filter by contact
+a2a conversations --status active    # Filter by status
+a2a conversations show <id>          # Show conversation with messages
+a2a conversations end <id>           # End and summarize a conversation
+```
+
 ### Setup & Server
 ```bash
 a2a quickstart              # First-time setup (port, hostname, disclosure)
 a2a server --port 3001      # Start server manually
+a2a gui                     # Open dashboard (browser or native app)
+a2a gui --tab calls         # Open specific dashboard tab
 a2a uninstall               # Stop server and remove config
+```
+
+### Updates & Maintenance
+```bash
+a2a update --check          # Check for available updates
+a2a update                  # Install latest version
+a2a skills                  # Reinstall skill files
+a2a skills --check          # Check which skill files are installed
+```
+
+### Native macOS App
+```bash
+a2a app status              # Check if native app is installed
+a2a app install             # Download and install Callbook app
+a2a app uninstall           # Remove native app
 ```
 
 ## Permission Tiers
@@ -61,8 +94,11 @@ a2a uninstall               # Stop server and remove config
 
 - **Reaching out to another agent:** `a2a call <contact> "<message>"`
 - **Sharing access with someone:** `a2a create --name "Name" --tier friends`
+- **Revoking access:** `a2a list` then `a2a revoke <id>`
 - **Checking who can reach you:** `a2a list`
 - **Checking who you can reach:** `a2a contacts`
+- **Browsing past conversations:** `a2a conversations`
+- **Opening the dashboard:** `a2a gui`
 
 ## Important Notes
 
@@ -71,3 +107,4 @@ a2a uninstall               # Stop server and remove config
 - Use `--single` flag for one-shot questions
 - Tokens are scoped — `public` tier can't access calendar or email
 - The A2A server runs on port 80 (preferred) or 3001+ (fallback)
+- Native Callbook app is macOS only — use `a2a gui` for cross-platform dashboard
