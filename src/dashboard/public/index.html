@@ -70,7 +70,13 @@
           <label for="tier-select">Tier</label>
           <sl-select id="tier-select" size="small" style="min-width:200px;"></sl-select>
           <sl-button id="new-tier-btn" size="small">New Tier</sl-button>
+          <sl-button id="preview-caller-btn" size="small" variant="neutral">&NewLine;&#x1F441; Preview as Caller</sl-button>
         </div>
+
+        <div id="tier-warnings" class="tier-warnings"></div>
+
+        <sl-checkbox id="show-drag-columns">Show all tiers side-by-side</sl-checkbox>
+        <div id="tier-columns" class="tier-columns"></div>
 
         <form id="tier-form">
           <sl-input id="tier-name" label="Name"></sl-input>
@@ -159,6 +165,11 @@
             <tbody></tbody>
           </table>
         </sl-card>
+
+        <sl-dialog id="preview-dialog" label="Caller Preview" style="--width: 540px;">
+          <div id="preview-content"></div>
+          <sl-button slot="footer" variant="primary" id="preview-close-btn">Close</sl-button>
+        </sl-dialog>
       </sl-tab-panel>
 
       <sl-tab-panel name="invites">
