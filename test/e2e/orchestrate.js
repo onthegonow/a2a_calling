@@ -8,6 +8,8 @@
  * Usage:
  *   node test/e2e/orchestrate.js                # markdown report to stderr
  *   node test/e2e/orchestrate.js --json          # JSON report to stdout
+ *   node test/e2e/orchestrate.js --persist        # save results to disk
+ *   node test/e2e/orchestrate.js --json --persist  # both
  *   node test/e2e/orchestrate.js --verbose        # verbose output
  */
 
@@ -16,6 +18,7 @@ const http = require('http');
 const args = process.argv.slice(2);
 const verbose = args.includes('--verbose');
 const jsonOutput = args.includes('--json');
+const persistResults = args.includes('--persist');
 
 // In JSON mode, redirect console.log/error/warn to stderr so only
 // the final JSON report goes to stdout (the A2A logger uses console.log
@@ -236,6 +239,25 @@ async function main() {
   }
 
   report.finish();
+
+  // A2A-42: Persist results to local storage for regression tracking
+  if (persistResults) {
+    try {
+      const { saveResult } = require('./persist');
+      const persisted = saveResult(report.toJSON());
+      if (!jsonOutput) {
+        process.stderr.write(`Results saved to ${persisted.file}\n`);
+      }
+      if (persisted.regression.detected) {
+        process.stderr.write(`\u26A0 REGRESSION DETECTED: ${persisted.regression.newFailures.join(', ')}\n`);
+      }
+      if (persisted.regression.fixedTests.length > 0) {
+        process.stderr.write(`\u2713 Fixed: ${persisted.regression.fixedTests.join(', ')}\n`);
+      }
+    } catch (err) {
+      process.stderr.write(`Warning: Failed to persist results: ${err.message}\n`);
+    }
+  }
 
   // Output report
   if (jsonOutput) {
