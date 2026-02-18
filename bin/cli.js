@@ -681,20 +681,17 @@ async function handleDisclosureSubmit(args, commandLabel = 'onboard') {
 
     const publicTierPatch = {
       topics: getTierTopics(tiersData.public),
-      goals: tokenGoals,
-      disclosure: 'minimal'
+      goals: tokenGoals
     };
     if (publicTools.length > 0) publicTierPatch.allowed_tools = publicTools;
 
     const friendsTierPatch = {
-      topics: [...getTierTopics(tiersData.public), ...getTierTopics(tiersData.friends)],
-      disclosure: 'standard'
+      topics: [...getTierTopics(tiersData.public), ...getTierTopics(tiersData.friends)]
     };
     if (friendsTools.length > 0) friendsTierPatch.allowed_tools = friendsTools;
 
     const familyTierPatch = {
-      topics: [...getTierTopics(tiersData.public), ...getTierTopics(tiersData.friends), ...getTierTopics(tiersData.family)],
-      disclosure: 'full'
+      topics: [...getTierTopics(tiersData.public), ...getTierTopics(tiersData.friends), ...getTierTopics(tiersData.family)]
     };
     if (familyTools.length > 0) familyTierPatch.allowed_tools = familyTools;
 
@@ -877,7 +874,6 @@ const commands = {
       owner: ownerName,
       expires: args.flags.expires || args.flags.e || 'never',
       permissions: tier,
-      disclosure: args.flags.disclosure || args.flags.d || 'minimal',
       notify: args.flags.notify || 'all',
       maxCalls,
       allowedTopics,
@@ -922,7 +918,6 @@ const commands = {
     if (Array.isArray(record.allowed_tools) && record.allowed_tools.length > 0) {
       console.log(`Tools: ${record.allowed_tools.join(', ')}`);
     }
-    console.log(`Disclosure: ${record.disclosure}`);
     console.log(`Notify: ${record.notify}`);
     console.log(`Max calls: ${record.max_calls || 'unlimited'}`);
     if (record.timeout_ms) console.log(`Turn timeout: ${record.timeout_ms}ms`);
@@ -2987,7 +2982,6 @@ Commands:
     --permissions, -p Tier (public, friends, family)
     --topics          Custom topics (comma-separated, overrides tier defaults)
     --tools           Custom tool allowlist (comma-separated, overrides tier defaults)
-    --disclosure, -d  Disclosure level (public, minimal, none)
     --notify          Owner notification (all, summary, none)
     --max-calls       Maximum invocations (default: 100)
     --timeout-ms      Per-token Claude turn timeout in milliseconds
@@ -3031,7 +3025,7 @@ Calling:
   ping <url>          Check if agent is reachable
   status <url>        Get A2A status
   gui                 Open the local dashboard GUI in a browser
-    --tab, -t         Optional: contacts|calls|logs|settings|invites
+    --tab, -t         Optional: contacts|calls|logs|permissions|invites
   app                 Manage native macOS app
     status            Show native app installation status (default)
     install           Install/update native app from GitHub release

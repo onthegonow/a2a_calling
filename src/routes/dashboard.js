@@ -1276,7 +1276,6 @@ function createDashboardApiRouter(options = {}) {
         allowed_tools: sanitizeStringArray(configTier.allowed_tools || [], 30, 80),
         topics: sanitizeStringArray(configTier.topics || []),
         goals: sanitizeStringArray(configTier.goals || []),
-        disclosure: configTier.disclosure || 'minimal',
         examples: sanitizeStringArray(configTier.examples || [], 20, 120),
         manifest: {
           topics: manifestTier.topics || [],
@@ -1310,7 +1309,6 @@ function createDashboardApiRouter(options = {}) {
     const update = {};
     if (body.name !== undefined) update.name = sanitizeString(body.name, 120);
     if (body.description !== undefined) update.description = sanitizeString(body.description, 300);
-    if (body.disclosure !== undefined) update.disclosure = sanitizeString(body.disclosure, 40) || 'minimal';
     if (body.capabilities !== undefined) update.capabilities = sanitizeStringArray(body.capabilities, 100, 120);
     if (body.allowed_tools !== undefined) update.allowed_tools = sanitizeStringArray(body.allowed_tools, 30, 80);
     if (body.examples !== undefined) update.examples = sanitizeStringArray(body.examples, 20, 120);
@@ -1375,7 +1373,6 @@ function createDashboardApiRouter(options = {}) {
           allowed_tools: sanitizeStringArray(body.allowed_tools || [], 30, 80),
           topics: sanitizeStringArray(body.topics || []),
           goals: sanitizeStringArray(body.goals || []),
-          disclosure: sanitizeString(body.disclosure || 'minimal', 40),
           examples: sanitizeStringArray(body.examples || [], 20, 120)
         });
       } catch (err) {

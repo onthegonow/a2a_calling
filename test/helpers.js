@@ -65,7 +65,6 @@ function tokenStoreWithGolda() {
     name: profile.agent.name,
     owner: profile.agent.owner,
     permissions: profile.token.tier,
-    disclosure: profile.token.disclosure,
     expires: profile.token.expires,
     maxCalls: profile.token.maxCalls,
     allowedTopics: profile.token.allowedTopics,
