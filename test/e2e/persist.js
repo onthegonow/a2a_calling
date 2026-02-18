@@ -19,6 +19,10 @@ const DEFAULT_CONFIG_DIR = process.env.A2A_CONFIG_DIR ||
 
 const MAX_HISTORY = 20;
 
+// A2A-42: Monotonic counter to disambiguate files written within the same
+// millisecond (reviewer flagged tight-loop timestamp collisions in tests).
+let seqCounter = 0;
+
 function resolveDir(configDir) {
   const base = configDir || DEFAULT_CONFIG_DIR;
   return {
@@ -50,7 +54,9 @@ function saveResult(report, options = {}) {
   ensureDir(resultsDir);
 
   const ts = new Date().toISOString().replace(/[:.]/g, '-');
-  const filename = `result-${ts}.json`;
+  // A2A-42: Append monotonic counter to prevent filename collisions in tight loops
+  const seq = String(seqCounter++).padStart(4, '0');
+  const filename = `result-${ts}-${seq}.json`;
   const filepath = path.join(resultsDir, filename);
 
   // A2A-42: Detect regression before writing, so we can include it in the saved result
