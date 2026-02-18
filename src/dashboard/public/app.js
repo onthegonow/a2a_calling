@@ -1102,6 +1102,194 @@ async function loadTrace(traceId) {
 // recognizable icons; custom/user-created tiers get a wrench.
 const TIER_EMOJIS = { public: '\u{1F310}', friends: '\u{1F46B}', family: '\u{1F468}\u200D\u{1F469}\u200D\u{1F467}\u200D\u{1F466}' };
 
+// A2A-41: tool descriptions for the checkbox UI. These match the tools
+// available in Claude Code that an agent owner might want to expose to callers.
+const TOOL_DESCRIPTIONS = {
+  'Bash': 'Execute shell commands \u2014 full access, can run anything',
+  'Bash(readonly)': 'Execute read-only shell commands \u2014 no writes, no installs',
+  'Read': 'Read files from the workspace',
+  'Grep': 'Search file contents with regex patterns',
+  'Glob': 'Find files by name patterns',
+  'WebSearch': 'Search the web for information',
+  'WebFetch': 'Fetch and read web page content'
+};
+
+// A2A-41: standard tier order for inheritance. Custom tiers are not in this list.
+const TIER_ORDER = ['public', 'friends', 'family'];
+
+// A2A-41: renders tool checkboxes instead of a textarea. Each tool gets
+// a checkbox with its description. Checked state comes from tier.allowed_tools.
+function renderToolCheckboxes(allowedTools) {
+  const container = document.getElementById('tier-tools-list');
+  container.innerHTML = Object.entries(TOOL_DESCRIPTIONS).map(([tool, desc]) => {
+    const checked = (allowedTools || []).includes(tool) ? 'checked' : '';
+    return `<sl-checkbox value="${esc(tool)}" ${checked}><strong>${esc(tool)}</strong> \u2014 <span class="tool-desc">${esc(desc)}</span></sl-checkbox>`;
+  }).join('');
+}
+
+// A2A-41: renders topics as expandable card rows with descriptions.
+// Data comes from tier.manifest.topics (array of {topic, description} objects).
+// Falls back to tier.topics (flat string array) for topics without manifest data.
+function renderTopicList(tier) {
+  const container = document.getElementById('tier-topics-list');
+  const manifestTopics = tier.manifest?.topics || [];
+  const flatTopics = tier.topics || [];
+
+  // A2A-41: prefer manifest data (has descriptions), fall back to flat array
+  const allTopics = manifestTopics.length > 0
+    ? manifestTopics.map(t => ({ label: t.topic, desc: t.description || '' }))
+    : flatTopics.map(t => ({ label: t, desc: '' }));
+
+  const rowsHtml = allTopics.map(t => `
+    <div class="topic-row" data-topic="${esc(t.label)}" data-type="topic">
+      <span class="drag-handle">\u2807</span>
+      <div class="topic-content">
+        <div class="topic-header">
+          <strong class="topic-label">${esc(t.label)}</strong>
+          <sl-icon-button name="chevron-down" class="topic-expand-btn" label="Expand"></sl-icon-button>
+          <sl-icon-button name="trash" class="topic-delete-btn" label="Delete"></sl-icon-button>
+        </div>
+        <div class="topic-description" style="display:none;">
+          <p class="topic-desc-text">${esc(t.desc) || '<em>No description</em>'}</p>
+          <sl-input class="topic-desc-edit" size="small" placeholder="Add description..." value="${esc(t.desc)}"></sl-input>
+        </div>
+      </div>
+    </div>
+  `).join('');
+
+  container.innerHTML = rowsHtml + `<button class="add-item-btn" data-type="topic">+ Add topic</button>`;
+}
+
+// A2A-41: renders goals as expandable card rows, identical pattern to topics.
+// Data from tier.manifest.objectives (array of {objective, description}).
+function renderGoalList(tier) {
+  const container = document.getElementById('tier-goals-list');
+  const manifestGoals = tier.manifest?.objectives || [];
+  const flatGoals = tier.goals || [];
+
+  const allGoals = manifestGoals.length > 0
+    ? manifestGoals.map(g => ({ label: g.objective || g.topic, desc: g.description || '' }))
+    : flatGoals.map(g => ({ label: g, desc: '' }));
+
+  const rowsHtml = allGoals.map(g => `
+    <div class="topic-row" data-topic="${esc(g.label)}" data-type="goal">
+      <span class="drag-handle">\u2807</span>
+      <div class="topic-content">
+        <div class="topic-header">
+          <strong class="topic-label">${esc(g.label)}</strong>
+          <sl-icon-button name="chevron-down" class="topic-expand-btn" label="Expand"></sl-icon-button>
+          <sl-icon-button name="trash" class="topic-delete-btn" label="Delete"></sl-icon-button>
+        </div>
+        <div class="topic-description" style="display:none;">
+          <p class="topic-desc-text">${esc(g.desc) || '<em>No description</em>'}</p>
+          <sl-input class="topic-desc-edit" size="small" placeholder="Add description..." value="${esc(g.desc)}"></sl-input>
+        </div>
+      </div>
+    </div>
+  `).join('');
+
+  container.innerHTML = rowsHtml + `<button class="add-item-btn" data-type="goal">+ Add goal</button>`;
+}
+
+// A2A-41: event delegation for topic and goal list interactions.
+// Uses a single click handler on each container instead of per-row binding,
+// preventing listener accumulation when topics are added dynamically.
+function bindItemListDelegation() {
+  ['tier-topics-list', 'tier-goals-list'].forEach(containerId => {
+    const container = document.getElementById(containerId);
+    if (!container) return;
+
+    container.addEventListener('click', (e) => {
+      // Expand/collapse
+      const expandBtn = e.target.closest('.topic-expand-btn');
+      if (expandBtn) {
+        const row = expandBtn.closest('.topic-row');
+        const desc = row.querySelector('.topic-description');
+        if (desc) {
+          const isHidden = desc.style.display === 'none';
+          desc.style.display = isHidden ? '' : 'none';
+          expandBtn.name = isHidden ? 'chevron-up' : 'chevron-down';
+        }
+        return;
+      }
+
+      // Delete
+      const deleteBtn = e.target.closest('.topic-delete-btn');
+      if (deleteBtn) {
+        deleteBtn.closest('.topic-row').remove();
+        return;
+      }
+
+      // Add new item
+      const addBtn = e.target.closest('.add-item-btn');
+      if (addBtn) {
+        const type = addBtn.dataset.type;
+        const label = type === 'topic' ? 'Topic name' : 'Goal name';
+        const newRow = document.createElement('div');
+        newRow.className = 'topic-row';
+        newRow.dataset.type = type;
+        newRow.innerHTML = `
+          <span class="drag-handle">\u2807</span>
+          <div class="topic-content">
+            <sl-input class="new-item-label" size="small" placeholder="${label}" autofocus></sl-input>
+            <sl-input class="new-item-desc" size="small" placeholder="Description (optional)"></sl-input>
+            <div class="row" style="margin-top:0.3rem;">
+              <sl-button size="small" variant="primary" class="confirm-add-btn">Add</sl-button>
+              <sl-button size="small" class="cancel-add-btn">Cancel</sl-button>
+            </div>
+          </div>
+        `;
+        container.insertBefore(newRow, addBtn);
+        return;
+      }
+
+      // Confirm add
+      const confirmBtn = e.target.closest('.confirm-add-btn');
+      if (confirmBtn) {
+        const row = confirmBtn.closest('.topic-row');
+        const nameInput = row.querySelector('.new-item-label');
+        const descInput = row.querySelector('.new-item-desc');
+        const name = nameInput.value.trim();
+        if (!name) { nameInput.focus(); return; }
+
+        row.dataset.topic = name;
+        row.innerHTML = `
+          <span class="drag-handle">\u2807</span>
+          <div class="topic-content">
+            <div class="topic-header">
+              <strong class="topic-label">${esc(name)}</strong>
+              <sl-icon-button name="chevron-down" class="topic-expand-btn" label="Expand"></sl-icon-button>
+              <sl-icon-button name="trash" class="topic-delete-btn" label="Delete"></sl-icon-button>
+            </div>
+            <div class="topic-description" style="display:none;">
+              <p class="topic-desc-text">${esc(descInput.value)}</p>
+              <sl-input class="topic-desc-edit" size="small" placeholder="Add description..." value="${esc(descInput.value)}"></sl-input>
+            </div>
+          </div>
+        `;
+        return;
+      }
+
+      // Cancel add
+      const cancelBtn = e.target.closest('.cancel-add-btn');
+      if (cancelBtn) {
+        cancelBtn.closest('.topic-row').remove();
+        return;
+      }
+    });
+
+    // Description edit via sl-change (Shoelace event, delegated)
+    container.addEventListener('sl-change', (e) => {
+      const input = e.target.closest('.topic-desc-edit');
+      if (input) {
+        const row = input.closest('.topic-row');
+        const textEl = row.querySelector('.topic-desc-text');
+        if (textEl) textEl.textContent = input.value || '';
+      }
+    });
+  });
+}
+
 function fillTierSelects() {
   const tiers = (state.settings?.tiers || []).slice().sort((a, b) => a.id.localeCompare(b.id));
   const tierSelect = document.getElementById('tier-select');
@@ -1135,9 +1323,9 @@ function renderTierEditor(tierId) {
 
   document.getElementById('tier-name').value = tier.name || tier.id;
   document.getElementById('tier-description').value = tier.description || '';
-  document.getElementById('tier-tools').value = toLines(tier.allowed_tools || []);
-  document.getElementById('tier-topics').value = toLines(tier.topics || []);
-  document.getElementById('tier-goals').value = toLines(tier.goals || []);
+  renderToolCheckboxes(tier.allowed_tools);
+  renderTopicList(tier);
+  renderGoalList(tier);
 }
 
 function bindSettingsActions() {
@@ -1148,12 +1336,42 @@ function bindSettingsActions() {
   document.getElementById('tier-form').addEventListener('submit', async (e) => {
     e.preventDefault();
     const tierId = document.getElementById('tier-select').value;
+
+    // A2A-41: collect tools from checkboxes
+    const toolCheckboxes = document.querySelectorAll('#tier-tools-list sl-checkbox');
+    const allowed_tools = Array.from(toolCheckboxes)
+      .filter(cb => cb.checked)
+      .map(cb => cb.value);
+
+    // A2A-41: collect topics from row elements
+    const topicRows = document.querySelectorAll('#tier-topics-list .topic-row[data-topic]');
+    const topics = Array.from(topicRows).map(row => row.dataset.topic).filter(Boolean);
+    const manifestTopics = Array.from(topicRows).map(row => ({
+      topic: row.dataset.topic,
+      description: (row.querySelector('.topic-desc-edit')?.value || row.querySelector('.topic-desc-text')?.textContent || '').trim()
+    })).filter(t => t.topic);
+
+    // A2A-41: collect goals from row elements. IMPORTANT: use 'topic' key (NOT
+    // 'objective') because parseTopicObjects() in dashboard.js:160 only reads
+    // entry.topic. The semantic distinction 'objective' vs 'topic' is UI-only;
+    // the storage layer uses {topic, description} uniformly for both.
+    const goalRows = document.querySelectorAll('#tier-goals-list .topic-row[data-topic]');
+    const goals = Array.from(goalRows).map(row => row.dataset.topic).filter(Boolean);
+    const manifestObjectives = Array.from(goalRows).map(row => ({
+      topic: row.dataset.topic,
+      description: (row.querySelector('.topic-desc-edit')?.value || row.querySelector('.topic-desc-text')?.textContent || '').trim()
+    })).filter(g => g.topic);
+
     const body = {
       name: document.getElementById('tier-name').value,
       description: document.getElementById('tier-description').value,
-      allowed_tools: fromLines(document.getElementById('tier-tools').value),
-      topics: fromLines(document.getElementById('tier-topics').value),
-      goals: fromLines(document.getElementById('tier-goals').value)
+      allowed_tools,
+      topics,
+      goals,
+      manifest: {
+        topics: manifestTopics,
+        objectives: manifestObjectives
+      }
     };
     await request(`/settings/tiers/${encodeURIComponent(tierId)}`, {
       method: 'PUT',
@@ -1615,6 +1833,7 @@ async function bootstrap() {
   bindTabs();
   bindContactsActions();
   bindSettingsActions();
+  bindItemListDelegation();
   bindCallbookActions();
   bindAutoUpdateActions();
   bindInviteActions();

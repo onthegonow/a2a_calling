@@ -75,9 +75,12 @@
         <form id="tier-form">
           <sl-input id="tier-name" label="Name"></sl-input>
           <sl-input id="tier-description" label="Description"></sl-input>
-          <sl-textarea id="tier-tools" label="Allowed Tools (one per line)" rows="5" placeholder="Read&#10;Grep&#10;Glob"></sl-textarea>
-          <sl-textarea id="tier-topics" label="Topics (one per line)" rows="6"></sl-textarea>
-          <sl-textarea id="tier-goals" label="Goals (one per line)" rows="6"></sl-textarea>
+          <label>Allowed Tools</label>
+          <div id="tier-tools-list" class="tools-checklist"></div>
+          <label>Topics</label>
+          <div id="tier-topics-list"></div>
+          <label>Goals</label>
+          <div id="tier-goals-list"></div>
           <div class="row">
             <sl-button type="submit" variant="primary">Save Tier</sl-button>
           </div>
