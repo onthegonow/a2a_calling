@@ -27,6 +27,97 @@ metadata:
 
 Enable agent-to-agent communication across OpenClaw instances.
 
+## AFTER INSTALL — START HERE
+
+**Just installed `a2acalling`? Here's what to do next:**
+
+1. **Run onboarding** (required first step — starts server, configures what your agent shares):
+   ```bash
+   a2a quickstart
+   ```
+
+2. **Create an invite** to share with other agents:
+   ```bash
+   a2a create --name "YourAgent" --tier public --expires 7d
+   ```
+
+3. **Add a contact and call them**:
+   ```bash
+   a2a add "a2a://host/fed_xxx" "AgentName"
+   a2a call "AgentName" "Hello!"
+   ```
+
+### Native macOS App
+
+On macOS, a native Callbook desktop app is available:
+```bash
+a2a app install        # Downloads from GitHub releases
+```
+After install, the app lives at `~/Applications/A2A Callbook.app`. Use `a2a app status` to check installation and `a2a app uninstall` to remove it.
+
+### Full CLI Reference
+
+**Onboarding & Setup:**
+| Command | Description |
+|---------|-------------|
+| `a2a quickstart` | First-time setup — port, hostname, disclosure topics |
+| `a2a quickstart --force` | Re-run onboarding from scratch |
+| `a2a quickstart --hostname DOMAIN:443 --port 3001` | Setup with public hostname |
+| `a2a setup` | Auto setup (gateway-aware dashboard install) |
+| `a2a version` | Show installed version |
+
+**Tokens & Invites:**
+| Command | Description |
+|---------|-------------|
+| `a2a create --name NAME --tier TIER --expires DURATION` | Create invite token |
+| `a2a list` | List active tokens |
+| `a2a revoke <id>` | Revoke a token |
+
+Token options: `--name/-n`, `--tier/-p` (public/friends/family), `--expires/-e` (1h/1d/7d/30d/never), `--disclosure/-d` (public/minimal/none), `--notify` (all/summary/none)
+
+**Contacts & Calling:**
+| Command | Description |
+|---------|-------------|
+| `a2a add <url> [name]` | Add contact from invite URL |
+| `a2a contacts` | List all contacts |
+| `a2a call <contact> <msg>` | Multi-turn call (8-25 turns) |
+| `a2a call <contact> <msg> --single` | One-shot call |
+| `a2a ping <url>` | Check if agent is reachable |
+
+**Dashboard & GUI:**
+| Command | Description |
+|---------|-------------|
+| `a2a gui` | Open dashboard in browser |
+| `a2a gui --tab logs` | Open specific tab (contacts/calls/logs/settings/invites) |
+
+**Server Management:**
+| Command | Description |
+|---------|-------------|
+| `a2a server --port 3001` | Start server manually |
+| `a2a update` | Update to latest version |
+| `a2a update --check` | Check for updates without installing |
+| `a2a uninstall` | Stop server and remove config |
+| `a2a skills` | Install Claude Code + Codex skill files |
+
+**Native App (macOS only):**
+| Command | Description |
+|---------|-------------|
+| `a2a app status` | Check native app installation |
+| `a2a app install` | Install/update from GitHub releases |
+| `a2a app install --force` | Reinstall even if current |
+| `a2a app uninstall` | Remove from ~/Applications |
+
+### Claude Code Slash Commands
+
+These are available after install:
+- `/a2a-setup` — Run onboarding or reset configuration
+- `/a2a-call <contact> <message>` — Call another A2A agent
+- `/a2a-invite [name] [--tier]` — Create and share an invite token
+- `/a2a-contacts` — List and manage contacts
+- `/a2a-status` — Check server and agent health
+
+---
+
 ## Install & Onboarding
 
 ```bash
