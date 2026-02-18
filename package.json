@@ -1,6 +1,6 @@
 {
   "name": "a2acalling",
-  "version": "0.6.60",
+  "version": "0.6.61",
   "description": "Agent-to-agent calling for OpenClaw - A2A agent communication",
   "main": "src/index.js",
   "bin": {
