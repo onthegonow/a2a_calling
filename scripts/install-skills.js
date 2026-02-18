@@ -37,12 +37,19 @@ const SKILL_FILES = [
   // Copied to .claude/ so Claude Code discovers it naturally without grepping
   // node_modules. This is opt-in context: only loaded when the agent looks.
   { src: 'SKILL.md', dest: '.claude/a2a-skill-reference.md' },
-  // Claude Code slash commands
+  // Claude Code slash commands — core (A2A-28)
   { src: '.claude/commands/a2a-call.md', dest: '.claude/commands/a2a-call.md' },
   { src: '.claude/commands/a2a-invite.md', dest: '.claude/commands/a2a-invite.md' },
   { src: '.claude/commands/a2a-contacts.md', dest: '.claude/commands/a2a-contacts.md' },
   { src: '.claude/commands/a2a-status.md', dest: '.claude/commands/a2a-status.md' },
   { src: '.claude/commands/a2a-setup.md', dest: '.claude/commands/a2a-setup.md' },
+  // Claude Code slash commands — extended (A2A-43)
+  { src: '.claude/commands/a2a-update.md', dest: '.claude/commands/a2a-update.md' },
+  { src: '.claude/commands/a2a-uninstall.md', dest: '.claude/commands/a2a-uninstall.md' },
+  { src: '.claude/commands/a2a-app.md', dest: '.claude/commands/a2a-app.md' },
+  { src: '.claude/commands/a2a-conversations.md', dest: '.claude/commands/a2a-conversations.md' },
+  { src: '.claude/commands/a2a-gui.md', dest: '.claude/commands/a2a-gui.md' },
+  { src: '.claude/commands/a2a-skills.md', dest: '.claude/commands/a2a-skills.md' },
   // Codex agent instructions
   { src: '.codex/AGENTS.md', dest: '.codex/AGENTS.md' }
 ];
