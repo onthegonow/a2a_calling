@@ -265,6 +265,7 @@ function bindTabs() {
     if (options.updateHash) {
       try { window.location.hash = target; } catch (err) {}
     }
+    if (typeof onTabSwitch === 'function') onTabSwitch(target);
     return true;
   };
 
@@ -1401,14 +1402,6 @@ function bindCallbookActions() {
   const labelEl = document.getElementById('callbook-label');
   const warningsEl = document.getElementById('callbook-warnings');
 
-  document.getElementById('callbook-refresh')?.addEventListener('click', () => {
-    Promise.all([loadDashboardStatus(true), loadCallbookDevices()]).catch(err => showNotice(err.message));
-  });
-
-  document.getElementById('callbook-refresh-devices')?.addEventListener('click', () => {
-    loadCallbookDevices().catch(err => showNotice(err.message));
-  });
-
   document.getElementById('callbook-logout')?.addEventListener('click', async () => {
     try {
       await request('/callbook/logout', { method: 'POST' });
@@ -1452,10 +1445,6 @@ function bindCallbookActions() {
 }
 
 function bindAutoUpdateActions() {
-  document.getElementById('auto-update-refresh')?.addEventListener('click', () => {
-    loadAutoUpdateStatus().catch(err => showNotice(err.message));
-  });
-
   document.getElementById('auto-update-check')?.addEventListener('click', async () => {
     try {
       await request('/update/check', { method: 'POST', body: JSON.stringify({}) });
@@ -1580,13 +1569,7 @@ function bindInviteActions() {
   });
 }
 
-function bindRefreshButtons() {
-  document.getElementById('refresh-contacts').addEventListener('click', () => loadContacts().catch(err => showNotice(err.message)));
-  document.getElementById('refresh-calls').addEventListener('click', () => loadCalls().catch(err => showNotice(err.message)));
-  document.getElementById('refresh-invites').addEventListener('click', () => loadInvites().catch(err => showNotice(err.message)));
-  document.getElementById('refresh-logs').addEventListener('click', () => loadLogs().catch(err => showNotice(err.message)));
-  document.getElementById('refresh-log-stats').addEventListener('click', () => loadLogStats().catch(err => showNotice(err.message)));
-
+function bindLogFilterRefresh() {
   // Auto-refresh logs as filters change (debounced).
   let debounce = null;
   const schedule = () => {
@@ -1610,6 +1593,42 @@ function bindRefreshButtons() {
   });
 }
 
+// --- Smart tab polling ---
+
+let pollTimer = null;
+
+function getActiveTab() {
+  return document.querySelector('.tab.is-active')?.dataset?.tab || 'contacts';
+}
+
+const tabLoaders = {
+  contacts: loadContacts,
+  calls: loadCalls,
+  logs: () => { loadLogs(); loadLogStats(); },
+  settings: () => {},
+  invites: loadInvites,
+};
+
+function startPolling() {
+  stopPolling();
+  pollTimer = setInterval(() => {
+    const loader = tabLoaders[getActiveTab()];
+    if (loader) loader().catch(() => {});
+  }, 5000);
+}
+
+function stopPolling() {
+  if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+}
+
+function onTabSwitch(tabName) {
+  const loader = tabLoaders[tabName];
+  if (loader) {
+    try { loader().catch(() => {}); } catch (_) {}
+  }
+  startPolling(); // reset the 5s timer
+}
+
 async function bootstrap() {
   bindTabs();
   bindContactsActions();
@@ -1617,7 +1636,7 @@ async function bootstrap() {
   bindCallbookActions();
   bindAutoUpdateActions();
   bindInviteActions();
-  bindRefreshButtons();
+  bindLogFilterRefresh();
 
   try {
     await Promise.all([
@@ -1633,6 +1652,7 @@ async function bootstrap() {
     ]);
     showNotice('Dashboard loaded');
     connectRealtimeEvents();
+    startPolling();
 
     setInterval(() => {
       loadAutoUpdateStatus().catch(() => {});
