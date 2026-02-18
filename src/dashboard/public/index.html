@@ -21,6 +21,7 @@
       <sl-tab slot="nav" panel="permissions">Permissions</sl-tab>
       <sl-tab slot="nav" panel="invites">Invites</sl-tab>
       <sl-tab slot="nav" panel="logs">Logs</sl-tab>
+      <sl-tab slot="nav" panel="health">Health</sl-tab>
 
       <sl-tab-panel name="contacts">
         <h2>Contacts</h2>
@@ -253,6 +254,27 @@
         </table>
 
         <sl-card id="trace-detail"></sl-card>
+      </sl-tab-panel>
+
+      <sl-tab-panel name="health">
+        <h2>E2E Health</h2>
+        <sl-card id="health-latest">
+          <p>No test results available. Run <code>node test/e2e/orchestrate.js --persist</code> to generate results.</p>
+        </sl-card>
+        <h3>History</h3>
+        <table id="health-history-table">
+          <thead>
+            <tr>
+              <th>Status</th>
+              <th>Duration</th>
+              <th>Passed</th>
+              <th>Failed</th>
+              <th>Regression</th>
+              <th>Time</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
       </sl-tab-panel>
     </sl-tab-group>
 
