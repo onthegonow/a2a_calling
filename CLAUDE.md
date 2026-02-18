@@ -69,7 +69,17 @@ You get notified (if configured).
 
 - `src/lib/tokens.js` - All token CRUD + validation
 - `src/lib/client.js` - `A2AClient` for outbound calls
+- `src/lib/conversations.js` - ConversationStore (SQLite)
+- `src/lib/conversation-driver.js` - Multi-turn call orchestration
+- `src/lib/summarizer.js` - Call summary generation
+- `src/lib/summary-prompt.js` - Unified summary prompt builder
+- `src/lib/disclosure.js` - Disclosure level enforcement
+- `src/lib/config.js` - Config file management
+- `src/lib/logger.js` - Structured logger (SQLite + stdout)
+- `src/lib/runtime-adapter.js` - Runtime mode detection
 - `src/routes/a2a.js` - Express router (mount at `/api/a2a`)
+- `src/routes/dashboard.js` - Dashboard API + SPA routes
+- `src/dashboard/public/app.js` - Dashboard SPA (Shoelace web components)
 - `docs/protocol.md` - Full protocol spec
 
 ## Native macOS App (Tauri)
@@ -103,6 +113,18 @@ cargo tauri build
 ## Testing
 
 ```bash
+# Run all tests (unit + integration, excludes e2e)
+npm test
+
+# Run specific test tiers
+node test/run.js --unit
+node test/run.js --integration
+node test/run.js --e2e
+
+# Filter by name
+node test/run.js --filter tokens
+
+# Manual CLI testing
 node bin/cli.js create --name "Test" --expires 1h
 node bin/cli.js list
 node bin/cli.js revoke <id>
