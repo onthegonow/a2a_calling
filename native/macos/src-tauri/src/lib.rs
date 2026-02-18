@@ -40,14 +40,14 @@ fn build_menu(app: &tauri::AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
     // View menu with tab shortcuts
     let contacts = MenuItem::with_id(app, "tab-contacts", "Contacts", true, Some("CmdOrCtrl+1"))?;
     let calls = MenuItem::with_id(app, "tab-calls", "Calls", true, Some("CmdOrCtrl+2"))?;
-    let logs = MenuItem::with_id(app, "tab-logs", "Logs", true, Some("CmdOrCtrl+3"))?;
-    let settings = MenuItem::with_id(app, "tab-settings", "Settings", true, Some("CmdOrCtrl+4"))?;
-    let invites = MenuItem::with_id(app, "tab-invites", "Invites", true, Some("CmdOrCtrl+5"))?;
+    let settings = MenuItem::with_id(app, "tab-settings", "Settings", true, Some("CmdOrCtrl+3"))?;
+    let invites = MenuItem::with_id(app, "tab-invites", "Invites", true, Some("CmdOrCtrl+4"))?;
+    let logs = MenuItem::with_id(app, "tab-logs", "Logs", true, Some("CmdOrCtrl+5"))?;
     let sep2 = PredefinedMenuItem::separator(app)?;
     let refresh = MenuItem::with_id(app, "refresh", "Refresh", true, Some("CmdOrCtrl+R"))?;
 
     let view_menu = Submenu::with_items(app, "View", true, &[
-        &contacts, &calls, &logs, &settings, &invites, &sep2, &refresh,
+        &contacts, &calls, &settings, &invites, &logs, &sep2, &refresh,
     ])?;
 
     // Edit menu (standard macOS)

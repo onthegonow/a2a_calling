@@ -15,9 +15,9 @@
   <nav>
     <button class="tab is-active" data-tab="contacts">Contacts</button>
     <button class="tab" data-tab="calls">Calls</button>
-    <button class="tab" data-tab="logs">Logs</button>
     <button class="tab" data-tab="settings">Settings</button>
     <button class="tab" data-tab="invites">Invites</button>
+    <button class="tab" data-tab="logs">Logs</button>
   </nav>
 
   <main>
@@ -69,56 +69,6 @@
         <tbody></tbody>
       </table>
       <div id="call-detail"></div>
-    </section>
-
-    <section id="tab-logs" class="panel">
-      <div class="row">
-        <h2>Logs</h2>
-        <button id="refresh-logs">Refresh</button>
-        <button id="refresh-log-stats">Stats</button>
-      </div>
-
-      <div class="filters">
-        <label>Level
-          <select id="logs-level">
-            <option value="">(any)</option>
-            <option value="trace">trace</option>
-            <option value="debug">debug</option>
-            <option value="info">info</option>
-            <option value="warn">warn</option>
-            <option value="error">error</option>
-          </select>
-        </label>
-        <label>Component <input id="logs-component" type="text" placeholder="a2a.routes"></label>
-        <label>Event <input id="logs-event" type="text" placeholder="invoke"></label>
-        <label>Trace ID <input id="logs-trace" type="text" placeholder="a2a_..."></label>
-        <label>Conversation ID <input id="logs-conversation" type="text" placeholder="conv_..."></label>
-        <label>Token ID <input id="logs-token" type="text" placeholder="tok_..."></label>
-        <label>Search <input id="logs-search" type="text" placeholder="text"></label>
-        <label>Limit <input id="logs-limit" type="number" min="1" max="1000" value="200"></label>
-      </div>
-
-      <div id="log-stats" class="card"></div>
-
-      <table id="logs-table">
-        <thead>
-          <tr>
-            <th>Time</th>
-            <th>Level</th>
-            <th>Component</th>
-            <th>Event</th>
-            <th>Message</th>
-            <th>Trace</th>
-            <th>Conv</th>
-            <th>Tok</th>
-            <th>Code</th>
-            <th>Status</th>
-          </tr>
-        </thead>
-        <tbody></tbody>
-      </table>
-
-      <div id="trace-detail" class="card"></div>
     </section>
 
     <section id="tab-settings" class="panel">
@@ -219,25 +169,31 @@
     </section>
 
     <section id="tab-invites" class="panel">
-      <h2>Generate Invite</h2>
-      <form id="invite-form">
-        <label>Name <input id="invite-name" type="text" required></label>
-        <label>Owner <input id="invite-owner" type="text"></label>
-        <label>Tier <select id="invite-tier"></select></label>
-        <label>Expires <input id="invite-expires" type="text" value="7d"></label>
-        <label>Max Calls <input id="invite-max-calls" type="number" min="1" value="100"></label>
-        <label>Notify <input id="invite-notify" type="text" value="all"></label>
-        <div class="row">
-          <button type="submit">Create Invite</button>
-        </div>
-      </form>
-
-      <label>Invite Message<textarea id="invite-message" rows="8" readonly></textarea></label>
-
       <div class="row">
-        <h3>Existing Invites</h3>
+        <h2>Invites</h2>
         <button id="refresh-invites">Refresh</button>
       </div>
+
+      <button id="generate-invite-toggle" class="add-contact-toggle" type="button">+ Generate Invite</button>
+      <div id="generate-invite-card" class="card add-contact-card" style="display:none;">
+        <h3>Generate Invite</h3>
+        <form id="invite-form">
+          <label>Name <input id="invite-name" type="text" required></label>
+          <label>Owner <input id="invite-owner" type="text"></label>
+          <label>Tier <select id="invite-tier"></select></label>
+          <label>Expires <input id="invite-expires" type="text" value="7d"></label>
+          <label>Max Calls <input id="invite-max-calls" type="number" min="1" value="100"></label>
+          <label>Notify <input id="invite-notify" type="text" value="all"></label>
+          <div class="row">
+            <button type="submit">Create Invite</button>
+            <button id="generate-invite-cancel" type="button">Cancel</button>
+          </div>
+        </form>
+      </div>
+
+      <label id="invite-message-wrap" style="display:none;">Invite Message<textarea id="invite-message" rows="8" readonly></textarea></label>
+
+      <h3>Existing Invites</h3>
       <table id="invites-table">
         <thead>
           <tr>
@@ -252,6 +208,56 @@
         </thead>
         <tbody></tbody>
       </table>
+    </section>
+
+    <section id="tab-logs" class="panel">
+      <div class="row">
+        <h2>Logs</h2>
+        <button id="refresh-logs">Refresh</button>
+        <button id="refresh-log-stats">Stats</button>
+      </div>
+
+      <div class="filters">
+        <label>Level
+          <select id="logs-level">
+            <option value="">(any)</option>
+            <option value="trace">trace</option>
+            <option value="debug">debug</option>
+            <option value="info">info</option>
+            <option value="warn">warn</option>
+            <option value="error">error</option>
+          </select>
+        </label>
+        <label>Component <input id="logs-component" type="text" placeholder="a2a.routes"></label>
+        <label>Event <input id="logs-event" type="text" placeholder="invoke"></label>
+        <label>Trace ID <input id="logs-trace" type="text" placeholder="a2a_..."></label>
+        <label>Conversation ID <input id="logs-conversation" type="text" placeholder="conv_..."></label>
+        <label>Token ID <input id="logs-token" type="text" placeholder="tok_..."></label>
+        <label>Search <input id="logs-search" type="text" placeholder="text"></label>
+        <label>Limit <input id="logs-limit" type="number" min="1" max="1000" value="200"></label>
+      </div>
+
+      <div id="log-stats" class="card"></div>
+
+      <table id="logs-table">
+        <thead>
+          <tr>
+            <th>Time</th>
+            <th>Level</th>
+            <th>Component</th>
+            <th>Event</th>
+            <th>Message</th>
+            <th>Trace</th>
+            <th>Conv</th>
+            <th>Tok</th>
+            <th>Code</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+
+      <div id="trace-detail" class="card"></div>
     </section>
 
     <div id="notice"></div>

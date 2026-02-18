@@ -1526,6 +1526,29 @@ async function loadInvites() {
 }
 
 function bindInviteActions() {
+  const toggleBtn = document.getElementById('generate-invite-toggle');
+  const inviteCard = document.getElementById('generate-invite-card');
+  const cancelBtn = document.getElementById('generate-invite-cancel');
+  const inviteMessageWrap = document.getElementById('invite-message-wrap');
+  const inviteMessage = document.getElementById('invite-message');
+
+  // Toggle button to show/hide Generate Invite form
+  if (toggleBtn && inviteCard) {
+    toggleBtn.addEventListener('click', () => {
+      const isHidden = inviteCard.style.display === 'none';
+      inviteCard.style.display = isHidden ? 'block' : 'none';
+      toggleBtn.style.display = isHidden ? 'none' : 'block';
+    });
+  }
+
+  // Cancel button collapses the form
+  if (cancelBtn && inviteCard && toggleBtn) {
+    cancelBtn.addEventListener('click', () => {
+      inviteCard.style.display = 'none';
+      toggleBtn.style.display = 'block';
+    });
+  }
+
   document.getElementById('invite-form').addEventListener('submit', async (e) => {
     e.preventDefault();
     const body = {
@@ -1540,7 +1563,14 @@ function bindInviteActions() {
       method: 'POST',
       body: JSON.stringify(body)
     });
-    document.getElementById('invite-message').value = result.invite_message || result.invite_url;
+    // Show the invite message textarea with the result
+    if (inviteMessage) {
+      inviteMessage.value = result.invite_message || result.invite_url;
+      if (inviteMessageWrap) inviteMessageWrap.style.display = 'block';
+    }
+    // Collapse the form after successful creation
+    if (inviteCard) inviteCard.style.display = 'none';
+    if (toggleBtn) toggleBtn.style.display = 'block';
     if (result.warnings && result.warnings.length) {
       showNotice(result.warnings[0]);
     } else {
