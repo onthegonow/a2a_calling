@@ -23,6 +23,7 @@
 if (process.env.CI || process.env.CONTINUOUS_INTEGRATION) process.exit(0);
 if (process.env.DOCKER) process.exit(0);
 
+const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const { spawnSync } = require('child_process');
@@ -70,6 +71,22 @@ function printGettingStarted() {
   const isMac = os.platform() === 'darwin';
   const pkg = require('../package.json');
 
+  // ── Short critical stderr output ──────────────────────────────────────
+  //
+  // npm v7+ suppresses stdout/stderr from postinstall scripts unless
+  // --foreground-scripts is used. We print a minimal critical line to stderr
+  // (which npm sometimes still shows) AND write the full banner to a log file
+  // so that Claude Code or a human can always find the getting-started info.
+  const shortLines = [
+    `a2acalling v${pkg.version} installed.`,
+    'Next step: a2a quickstart',
+    'Skills installed: /a2a-setup, /a2a-call, /a2a-contacts, /a2a-invite, /a2a-status',
+  ];
+  // Print the short critical summary to stderr — this is the most likely
+  // output to survive npm's output suppression in v7+
+  console.error(shortLines.join('\n'));
+
+  // ── Full verbose banner ───────────────────────────────────────────────
   const lines = [
     '',
     '╔══════════════════════════════════════════════════════════════╗',
@@ -176,9 +193,32 @@ function printGettingStarted() {
     '',
   );
 
-  // Print to stderr — npm v7+ captures stdout from lifecycle scripts,
-  // but stderr is still visible in many agent contexts
-  console.error(lines.join('\n'));
-  // Also print to stdout for contexts where stderr is filtered
-  console.log(lines.join('\n'));
+  const fullBanner = lines.join('\n');
+
+  // Print the full banner to stdout for contexts where it's visible
+  // (e.g., --foreground-scripts, direct script execution, agent contexts)
+  console.log(fullBanner);
+
+  // ── Write full banner to a log file ─────────────────────────────────
+  //
+  // Even when npm suppresses terminal output, the agent or human can read
+  // this file to get the full getting-started info. We write to the project
+  // root (initCwd) so it's next to CLAUDE.md and easy to discover.
+  try {
+    const logPath = path.join(initCwd, '.a2a-install.log');
+    const logContent = [
+      `a2acalling v${pkg.version} — install summary`,
+      `Installed at: ${new Date().toISOString()}`,
+      `Target directory: ${initCwd}`,
+      `Global install: ${isGlobal}`,
+      '',
+      ...shortLines,
+      '',
+      fullBanner,
+    ].join('\n');
+    fs.writeFileSync(logPath, logContent);
+  } catch (e) {
+    // Non-fatal — the log file is a convenience, not a requirement.
+    // This can fail if the target directory is read-only (e.g., system dirs).
+  }
 }

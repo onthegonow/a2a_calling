@@ -152,3 +152,5 @@ a2a version              # Show installed version
 - Disclosure: `~/.config/openclaw/a2a-disclosure.json`
 - Native app: `~/Applications/A2A Callbook.app` (macOS only)
 - Dashboard: `http://127.0.0.1:<port>/dashboard/`
+
+<!-- END A2A CALLING SECTION -->
