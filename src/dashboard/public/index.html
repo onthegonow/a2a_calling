@@ -22,10 +22,7 @@
 
   <main>
     <section id="tab-contacts" class="panel is-active">
-      <div class="row">
-        <h2>Contacts</h2>
-        <button id="refresh-contacts">Refresh</button>
-      </div>
+      <h2>Contacts</h2>
 
       <button id="add-contact-toggle" class="add-contact-toggle" type="button">+ Add Contact</button>
       <div id="add-contact-card" class="card add-contact-card" style="display:none;">
@@ -51,10 +48,7 @@
     </section>
 
     <section id="tab-calls" class="panel">
-      <div class="row">
-        <h2>Calls</h2>
-        <button id="refresh-calls">Refresh</button>
-      </div>
+      <h2>Calls</h2>
       <table id="calls-table">
         <thead>
           <tr>
@@ -72,11 +66,7 @@
     </section>
 
     <section id="tab-logs" class="panel">
-      <div class="row">
-        <h2>Logs</h2>
-        <button id="refresh-logs">Refresh</button>
-        <button id="refresh-log-stats">Stats</button>
-      </div>
+      <h2>Logs</h2>
 
       <div class="filters">
         <label>Level
@@ -177,7 +167,6 @@
       <h3>Auto Update</h3>
       <div id="auto-update-status" class="card">Loading…</div>
       <div class="row">
-        <button id="auto-update-refresh" type="button">Refresh</button>
         <button id="auto-update-check" type="button">Check now</button>
         <button id="auto-update-now" type="button">Update now</button>
         <button id="auto-update-toggle" type="button">Disable auto-update</button>
@@ -186,7 +175,6 @@
       <form id="callbook-provision-form" class="card">
         <div class="row">
           <button type="submit">Create Install Link (24h)</button>
-          <button id="callbook-refresh" type="button">Refresh</button>
           <button id="callbook-logout" type="button">Logout This Browser</button>
         </div>
         <label>Device label <input id="callbook-label" type="text" value="Callbook Remote"></label>
@@ -200,7 +188,6 @@
       <div class="card">
         <div class="row">
           <strong>Paired Devices</strong>
-          <button id="callbook-refresh-devices" type="button">Refresh Devices</button>
         </div>
         <table id="callbook-devices-table">
           <thead>
@@ -234,10 +221,7 @@
 
       <label>Invite Message<textarea id="invite-message" rows="8" readonly></textarea></label>
 
-      <div class="row">
-        <h3>Existing Invites</h3>
-        <button id="refresh-invites">Refresh</button>
-      </div>
+      <h3>Existing Invites</h3>
       <table id="invites-table">
         <thead>
           <tr>
