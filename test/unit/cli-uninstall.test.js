@@ -9,6 +9,9 @@ module.exports = function (test, assert, helpers) {
   const path = require('path');
   const { spawnSync } = require('child_process');
 
+  // Absolute path to CLI so we can set cwd to the temp dir without breaking require()
+  const CLI_PATH = path.resolve(__dirname, '..', '..', 'bin', 'cli.js');
+
   function writeDummyFiles(dir) {
     const configFile = path.join(dir, 'a2a-config.json');
     const disclosureFile = path.join(dir, 'a2a-disclosure.json');
@@ -29,8 +32,12 @@ module.exports = function (test, assert, helpers) {
     const tmp = helpers.tmpConfigDir('cli-uninstall');
     const { configFile, disclosureFile, tokensFile, dbFile, logsDbFile, callbookDbFile } = writeDummyFiles(tmp.dir);
 
-    const res = spawnSync(process.execPath, ['bin/cli.js', 'uninstall', '--force'], {
-      env: { ...process.env, A2A_CONFIG_DIR: tmp.dir },
+    // A2A-44: cwd must point at the temp dir so the uninstall command's
+    // manifest lookup (process.cwd()) doesn't find the real project's
+    // .a2a-manifest.json and delete actual source files.
+    const res = spawnSync(process.execPath, [CLI_PATH, 'uninstall', '--force'], {
+      env: { ...process.env, A2A_CONFIG_DIR: tmp.dir, INIT_CWD: tmp.dir },
+      cwd: tmp.dir,
       encoding: 'utf8',
       timeout: 20000
     });
@@ -51,8 +58,10 @@ module.exports = function (test, assert, helpers) {
     const tmp = helpers.tmpConfigDir('cli-uninstall-keep');
     const { configFile, disclosureFile, dbFile } = writeDummyFiles(tmp.dir);
 
-    const res = spawnSync(process.execPath, ['bin/cli.js', 'uninstall', '--keep-config', '--force'], {
-      env: { ...process.env, A2A_CONFIG_DIR: tmp.dir },
+    // A2A-44: same isolation as above — prevent manifest bleed into real project
+    const res = spawnSync(process.execPath, [CLI_PATH, 'uninstall', '--keep-config', '--force'], {
+      env: { ...process.env, A2A_CONFIG_DIR: tmp.dir, INIT_CWD: tmp.dir },
+      cwd: tmp.dir,
       encoding: 'utf8',
       timeout: 20000
     });

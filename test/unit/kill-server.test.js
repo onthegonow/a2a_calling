@@ -12,6 +12,11 @@ module.exports = function (test, assert, helpers) {
   const path = require('path');
   const { spawn, spawnSync } = require('child_process');
 
+  // A2A-44: Absolute path to CLI so we can set cwd to the temp dir,
+  // preventing the uninstall command's manifest lookup from finding
+  // the real project's .a2a-manifest.json and deleting source files.
+  const CLI_PATH = path.resolve(__dirname, '..', '..', 'bin', 'cli.js');
+
   function waitForPort(port, timeoutMs = 3000) {
     return new Promise((resolve, reject) => {
       const start = Date.now();
@@ -83,8 +88,9 @@ module.exports = function (test, assert, helpers) {
     }));
 
     // Run uninstall --force
-    const res = spawnSync(process.execPath, ['bin/cli.js', 'uninstall', '--force'], {
-      env: { ...process.env, A2A_CONFIG_DIR: tmp.dir },
+    const res = spawnSync(process.execPath, [CLI_PATH, 'uninstall', '--force'], {
+      env: { ...process.env, A2A_CONFIG_DIR: tmp.dir, INIT_CWD: tmp.dir },
+      cwd: tmp.dir,
       encoding: 'utf8',
       timeout: 20000
     });
@@ -119,8 +125,9 @@ module.exports = function (test, assert, helpers) {
     }));
 
     // Run uninstall --force
-    const res = spawnSync(process.execPath, ['bin/cli.js', 'uninstall', '--force'], {
-      env: { ...process.env, A2A_CONFIG_DIR: tmp.dir },
+    const res = spawnSync(process.execPath, [CLI_PATH, 'uninstall', '--force'], {
+      env: { ...process.env, A2A_CONFIG_DIR: tmp.dir, INIT_CWD: tmp.dir },
+      cwd: tmp.dir,
       encoding: 'utf8',
       timeout: 20000
     });
@@ -156,8 +163,9 @@ module.exports = function (test, assert, helpers) {
     }));
 
     // Run uninstall --force
-    const res = spawnSync(process.execPath, ['bin/cli.js', 'uninstall', '--force'], {
-      env: { ...process.env, A2A_CONFIG_DIR: tmp.dir },
+    const res = spawnSync(process.execPath, [CLI_PATH, 'uninstall', '--force'], {
+      env: { ...process.env, A2A_CONFIG_DIR: tmp.dir, INIT_CWD: tmp.dir },
+      cwd: tmp.dir,
       encoding: 'utf8',
       timeout: 20000
     });
@@ -175,8 +183,9 @@ module.exports = function (test, assert, helpers) {
     const configPath = path.join(tmp.dir, 'a2a-config.json');
     fs.writeFileSync(configPath, JSON.stringify({}));
 
-    const res = spawnSync(process.execPath, ['bin/cli.js', 'uninstall', '--force'], {
-      env: { ...process.env, A2A_CONFIG_DIR: tmp.dir },
+    const res = spawnSync(process.execPath, [CLI_PATH, 'uninstall', '--force'], {
+      env: { ...process.env, A2A_CONFIG_DIR: tmp.dir, INIT_CWD: tmp.dir },
+      cwd: tmp.dir,
       encoding: 'utf8',
       timeout: 20000
     });
@@ -207,8 +216,9 @@ module.exports = function (test, assert, helpers) {
     }));
 
     // Run uninstall --force
-    const res = spawnSync(process.execPath, ['bin/cli.js', 'uninstall', '--force'], {
-      env: { ...process.env, A2A_CONFIG_DIR: tmp.dir },
+    const res = spawnSync(process.execPath, [CLI_PATH, 'uninstall', '--force'], {
+      env: { ...process.env, A2A_CONFIG_DIR: tmp.dir, INIT_CWD: tmp.dir },
+      cwd: tmp.dir,
       encoding: 'utf8',
       timeout: 20000
     });
@@ -249,8 +259,9 @@ module.exports = function (test, assert, helpers) {
       }
     }));
 
-    const res = spawnSync(process.execPath, ['bin/cli.js', 'uninstall', '--force'], {
-      env: { ...process.env, A2A_CONFIG_DIR: tmp.dir },
+    const res = spawnSync(process.execPath, [CLI_PATH, 'uninstall', '--force'], {
+      env: { ...process.env, A2A_CONFIG_DIR: tmp.dir, INIT_CWD: tmp.dir },
+      cwd: tmp.dir,
       encoding: 'utf8',
       timeout: 20000
     });
