@@ -74,7 +74,7 @@ Only two runtime dependencies (intentionally minimal):
 
 ## Dashboard
 
-Single-page app served from `src/dashboard/public/`. Uses Shoelace web components. Communicates with the API via `/dashboard/api/*` routes.
+Single-page app served from `src/dashboard/public/`. Uses Shoelace web components. Communicates with the API via `/dashboard/api/*` routes. Includes tabs: Contacts, Calls, Logs, Settings, Invites, Permissions, and Health (E2E test results).
 
 ## Native macOS App
 
@@ -88,3 +88,5 @@ Zero-dependency test runner at `test/run.js` with custom assert API. Three test 
 - `test/e2e/` — End-to-end tests for full system flows
 
 Test profiles at `test/profiles/` represent real personas with distinct permission tiers.
+
+E2E test results are persisted to `~/.config/openclaw/a2a-e2e-results.json` via `test/e2e/persist.js` and surfaced in the dashboard Health tab. The `scripts/run-e2e.sh` orchestrator runs E2E suites and stores results.
