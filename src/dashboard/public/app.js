@@ -1462,29 +1462,27 @@ function autoSaveTier() {
     })).filter(g => g.topic);
 
     const body = { allowed_tools, topics, goals, manifest: { topics: manifestTopics, objectives: manifestObjectives } };
+    // A2A-48: Refresh state inside try block so that a failed PUT does not
+    // trigger an unhandled rejection from the subsequent GET.
     try {
       await request(`/settings/tiers/${encodeURIComponent(tierId)}`, {
         method: 'PUT', body: JSON.stringify(body)
       });
       showNotice('Saved');
+      // Refresh state from server to stay in sync after auto-save
+      const payload = await request('/settings');
+      state.settings = payload;
     } catch (err) {
       showNotice(`Save failed: ${err.message}`);
     }
-    // A2A-48: Refresh state from server to stay in sync after auto-save
-    const payload = await request('/settings');
-    state.settings = payload;
   }, 250);
 }
 
-// A2A-48: HTML5 drag-and-drop from sidebar items to active zones.
-// Enables dragging topics/goals from the sidebar list into the
-// #active-topics-zone or #active-goals-zone. On drop, the item is
-// added to the zone and auto-saved.
+// A2A-48: Binds dragstart/dragend on sidebar items (re-created each render).
+// Zone listeners (dragover/dragleave/drop) are bound ONCE in
+// bindPermissionsActions() to avoid listener accumulation — the zone
+// containers persist across renders while only their innerHTML changes.
 function bindSidebarDrag() {
-  const topicZone = document.getElementById('active-topics-zone');
-  const goalZone = document.getElementById('active-goals-zone');
-
-  // Make sidebar items draggable
   document.querySelectorAll('.sidebar-item[draggable="true"]').forEach(item => {
     item.addEventListener('dragstart', (e) => {
       const itemType = item.dataset.itemType || 'topic';
@@ -1495,57 +1493,52 @@ function bindSidebarDrag() {
     });
     item.addEventListener('dragend', () => { item.style.opacity = ''; });
   });
+}
 
-  // Drop zone handlers
-  [topicZone, goalZone].forEach(zone => {
-    if (!zone) return;
-    zone.addEventListener('dragover', (e) => { e.preventDefault(); zone.classList.add('drag-over'); });
-    zone.addEventListener('dragleave', () => zone.classList.remove('drag-over'));
-    zone.addEventListener('drop', (e) => {
-      e.preventDefault();
-      zone.classList.remove('drag-over');
-      let data;
-      try { data = JSON.parse(e.dataTransfer.getData('application/json')); } catch { return; }
-      if (!data.name) return;
+// A2A-48: Drop handler for active topic/goal zones. Extracted from
+// bindSidebarDrag() to be called once in bindPermissionsActions().
+function handleZoneDrop(zone, e) {
+  e.preventDefault();
+  zone.classList.remove('drag-over');
+  let data;
+  try { data = JSON.parse(e.dataTransfer.getData('application/json')); } catch { return; }
+  if (!data.name) return;
 
-      // A2A-48: Determine target type from which zone received the drop
-      const isTopicZone = zone.id === 'active-topics-zone';
-      const accentClass = isTopicZone ? 'active-item-card--teal' : 'active-item-card--yellow';
-      const typeLabel = isTopicZone ? 'Topic' : 'Goal';
-      const removeAttr = isTopicZone ? 'data-remove-topic' : 'data-remove-goal';
+  const isTopicZone = zone.id === 'active-topics-zone';
+  const accentClass = isTopicZone ? 'active-item-card--teal' : 'active-item-card--yellow';
+  const typeLabel = isTopicZone ? 'Topic' : 'Goal';
+  const removeAttr = isTopicZone ? 'data-remove-topic' : 'data-remove-goal';
 
-      // Check if already in zone
-      const existing = zone.querySelectorAll('.active-item-card');
-      for (const card of existing) {
-        if (card.dataset.topic === data.name) return; // already active
-      }
+  // Check if already in zone
+  const existing = zone.querySelectorAll('.active-item-card');
+  for (const card of existing) {
+    if (card.dataset.topic === data.name) return; // already active
+  }
 
-      // Insert before the placeholder
-      const placeholder = zone.querySelector('.drop-placeholder');
-      const card = document.createElement('div');
-      card.className = `active-item-card ${accentClass}`;
-      card.dataset.topic = data.name;
-      card.dataset.description = data.description || '';
-      card.innerHTML = `
-        <div>
-          <div class="item-name">${esc(data.name)}</div>
-          <div class="item-type-label">${typeLabel}</div>
-        </div>
-        <button class="item-close-btn" ${removeAttr}="${esc(data.name)}">
-          <span class="material-symbols-outlined" style="font-size:16px;">close</span>
-        </button>
-      `;
-      zone.insertBefore(card, placeholder);
-      autoSaveTier();
+  // Insert before the placeholder
+  const placeholder = zone.querySelector('.drop-placeholder');
+  const card = document.createElement('div');
+  card.className = `active-item-card ${accentClass}`;
+  card.dataset.topic = data.name;
+  card.dataset.description = data.description || '';
+  card.innerHTML = `
+    <div>
+      <div class="item-name">${esc(data.name)}</div>
+      <div class="item-type-label">${typeLabel}</div>
+    </div>
+    <button class="item-close-btn" ${removeAttr}="${esc(data.name)}">
+      <span class="material-symbols-outlined" style="font-size:16px;">close</span>
+    </button>
+  `;
+  zone.insertBefore(card, placeholder);
+  autoSaveTier();
 
-      // Update sidebar to show item as active
-      const tier = (state.settings?.tiers || []).find(t => t.id === state.activeTierId);
-      if (tier) {
-        // A2A-48: Defer sidebar re-render slightly to let auto-save complete
-        setTimeout(() => renderSidebarLists(tier), 300);
-      }
-    });
-  });
+  // A2A-48: Re-fetch tier from state instead of using captured reference,
+  // since autoSaveTier() may refresh state.settings asynchronously.
+  setTimeout(() => {
+    const freshTier = (state.settings?.tiers || []).find(t => t.id === state.activeTierId);
+    if (freshTier) renderSidebarLists(freshTier);
+  }, 300);
 }
 
 // A2A-48: Extracted from old fillTierSelects(). Populates only the
@@ -1698,13 +1691,13 @@ function bindPermissionsActions() {
   const panel = document.getElementById('panel-permissions');
   if (!panel) return;
 
-  // A2A-48: Tier card click — switch active tier and re-render
+  // A2A-48: Tier card click — switch active tier and re-render.
+  // No autoSaveTier() here: switching tiers is a read operation, not a write.
   panel.addEventListener('click', (e) => {
     const card = e.target.closest('.tier-card[data-tier-id]');
     if (card) {
       state.activeTierId = card.dataset.tierId;
       renderPermissions();
-      autoSaveTier();
       return;
     }
 
@@ -1754,6 +1747,19 @@ function bindPermissionsActions() {
       }
       return;
     }
+  });
+
+  // A2A-48: Drop zone listeners — bound ONCE here because the zone containers
+  // (#active-topics-zone, #active-goals-zone) persist across renders. Only
+  // their innerHTML is replaced by renderActiveTopics/renderActiveGoals.
+  // Binding in bindSidebarDrag() would cause listener accumulation.
+  const topicZone = document.getElementById('active-topics-zone');
+  const goalZone = document.getElementById('active-goals-zone');
+  [topicZone, goalZone].forEach(zone => {
+    if (!zone) return;
+    zone.addEventListener('dragover', (e) => { e.preventDefault(); zone.classList.add('drag-over'); });
+    zone.addEventListener('dragleave', () => zone.classList.remove('drag-over'));
+    zone.addEventListener('drop', (e) => handleZoneDrop(zone, e));
   });
 
   // A2A-48: Tool toggle change — auto-save and update card styling
