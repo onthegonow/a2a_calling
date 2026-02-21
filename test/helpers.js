@@ -185,6 +185,69 @@ function request(app) {
   return methods;
 }
 
+/**
+ * A2A-45: Session-level test notifier.
+ *
+ * Sends ONE real Telegram notification per test session (to verify
+ * the transport works), then logs all subsequent notifications to
+ * stdout without sending.  Module-level state persists across test
+ * files in the same `node` process via require() caching.
+ */
+let _notifierSentOnce = false;
+const _notifierLog = [];
+
+const TestNotifier = {
+  /**
+   * Send or log a test notification.
+   *
+   * @param {object} opts
+   * @param {string} opts.message  - Full notification text
+   * @param {string} opts.label    - Short identifier (e.g. "golda-calls-bappybot")
+   * @param {string} [opts.topicId] - Telegram topic ID (default: 82944165)
+   */
+  send({ message, label, topicId = '82944165' }) {
+    const entry = { label, message, sent: false, timestamp: new Date().toISOString() };
+
+    if (!_notifierSentOnce) {
+      // First notification this session: send for real
+      _notifierSentOnce = true;
+      try {
+        const { execSync } = require('child_process');
+        const tmpMsg = path.join(os.tmpdir(), `a2a-test-notify-${Date.now()}.txt`);
+        fs.writeFileSync(tmpMsg, message);
+        const sendResult = execSync(
+          `openclaw message send --channel telegram -t ${topicId} -m "$(cat '${tmpMsg}')"`,
+          { timeout: 30000, encoding: 'utf8', shell: '/bin/bash' }
+        );
+        fs.unlinkSync(tmpMsg);
+        entry.sent = true;
+        const msgIdMatch = sendResult.match(/Message ID: (\d+)/);
+        process.stdout.write(`    [notify] ${label}: SENT${msgIdMatch ? ` (msg ${msgIdMatch[1]})` : ''}\n`);
+      } catch (err) {
+        entry.sent = true; // A2A-45: still counts as the "one real attempt"
+        const stderr = err.stderr?.toString().trim() || '';
+        const stdout = err.stdout?.toString().trim() || '';
+        process.stdout.write(`    [notify] ${label}: ${stdout || stderr || err.message || 'delivery attempted'}\n`);
+      }
+    } else {
+      // Subsequent notifications: log only
+      process.stdout.write(`    [notify] ${label}: LOGGED (not sent — one per session)\n`);
+    }
+
+    _notifierLog.push(entry);
+  },
+
+  /** Returns all notification entries (both sent and logged). */
+  getLog() {
+    return _notifierLog;
+  },
+
+  /** Whether the last call to send() was actually sent. */
+  wasSent() {
+    return _notifierLog.length > 0 && _notifierLog[_notifierLog.length - 1].sent;
+  }
+};
+
 module.exports = {
   tmpConfigDir,
   goldaDeluxeProfile,
@@ -192,5 +255,6 @@ module.exports = {
   writeDisclosureManifest,
   writeA2AConfig,
   createTestApp,
-  request
+  request,
+  TestNotifier
 };

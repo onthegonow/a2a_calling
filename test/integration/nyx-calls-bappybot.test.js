@@ -645,23 +645,9 @@ module.exports = function (test, assert, helpers) {
 
     const telegramMessage = telegramLines.join('\n');
 
-    try {
-      const { execSync } = require('child_process');
-      const os = require('os');
-      const tmpMsg = path.join(os.tmpdir(), `a2a-telegram-nyx-${Date.now()}.txt`);
-      fs.writeFileSync(tmpMsg, telegramMessage);
-      const sendResult = execSync(
-        `openclaw message send --channel telegram -t 82944165 -m "$(cat '${tmpMsg}')"`,
-        { timeout: 30000, encoding: 'utf8', shell: '/bin/bash' }
-      );
-      fs.unlinkSync(tmpMsg);
-      const msgIdMatch = sendResult.match(/Message ID: (\d+)/);
-      console.log(`\n  📱 TELEGRAM: Summary delivered${msgIdMatch ? ` (msg ${msgIdMatch[1]})` : ''}`);
-    } catch (err) {
-      const stderr = err.stderr?.toString().trim() || '';
-      const stdout = err.stdout?.toString().trim() || '';
-      console.log(`\n  📱 TELEGRAM: ${stdout || stderr || err.message || 'delivery attempted'}`);
-    }
+    // A2A-45: Use session-level notifier — sends one real notification per
+    // test session, logs the rest to stdout without hitting Telegram.
+    helpers.TestNotifier.send({ message: telegramMessage, label: 'nyx-calls-bappybot' });
 
     console.log('\n' + '═'.repeat(70) + '\n');
 
