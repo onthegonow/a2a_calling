@@ -180,6 +180,11 @@ h3 {
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   gap: 0.6rem;
   margin-bottom: 0.9rem;
+  /* A2A-49: Subtle background for filter areas */
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 0.8rem;
 }
 
 /* A2A-47: Glass-panel style for cards in dark theme */
@@ -289,9 +294,22 @@ tr[data-selected="1"] td {
   cursor: default;
 }
 
-/* A2A-47: Dark hover for log rows replacing light #f6fbff */
-#logs-table tr:hover td {
+/* A2A-49: Universal dark table row hover for all tabs.
+   Uses 0.04 to match the existing logs hover opacity from A2A-47. */
+table tbody tr:hover td {
   background: rgba(255, 255, 255, 0.04);
+}
+
+/* A2A-49: Contacts rows use buttons inside cells (not full-row click),
+   so they don't get cursor:pointer — only calls rows do. */
+
+/* A2A-49: Clickable table rows get pointer cursor */
+#calls-table tbody tr {
+  cursor: pointer;
+}
+
+#calls-table tbody tr:hover td {
+  background: rgba(59, 130, 246, 0.08);
 }
 
 /* A2A-47: Dark notice styling replacing light blue colors */
@@ -1044,6 +1062,135 @@ tr[data-selected="1"] td {
 }
 
 #preview-content li strong {
+  color: var(--ink);
+}
+
+/* A2A-49: Contact status colored badges */
+.contact-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.82rem;
+}
+
+.contact-status::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.contact-status[data-status="online"]::before {
+  background: #10B981;
+  box-shadow: 0 0 6px rgba(16, 185, 129, 0.6);
+}
+
+.contact-status[data-status="offline"]::before {
+  background: #EF4444;
+  box-shadow: 0 0 6px rgba(239, 68, 68, 0.4);
+}
+
+.contact-status[data-status="unknown"]::before {
+  background: #6B7280;
+}
+
+/* A2A-49: Log level color coding */
+.log-level {
+  font-size: 0.78rem;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.log-level[data-level="error"] {
+  color: #F87171;
+}
+
+.log-level[data-level="warn"] {
+  color: #FBBF24;
+}
+
+.log-level[data-level="info"] {
+  color: #60A5FA;
+}
+
+.log-level[data-level="debug"] {
+  color: #A78BFA;
+}
+
+.log-level[data-level="trace"] {
+  color: #6B7280;
+}
+
+/* A2A-49: Dark monospace code elements */
+code {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+  padding: 0.1em 0.35em;
+  font-size: 0.85em;
+  color: #E2E8F0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+}
+
+/* A2A-49: pre.summary gets dark background. This SUPPLEMENTS the existing
+   .summary rule (max-width + white-space) — do NOT remove .summary. */
+pre.summary {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 0.75em;
+  color: var(--ink);
+}
+
+/* A2A-49: sl-details summary bar dark polish */
+sl-details::part(summary) {
+  font-weight: 500;
+  color: var(--ink);
+}
+
+sl-details::part(base) {
+  background: var(--card-bg);
+  border-color: var(--line);
+}
+
+/* A2A-49: Health card gets glass-panel treatment via CSS (not index.html).
+   The acceptance criterion requires glass-panel styling on #health-latest.
+   We target the sl-card shadow DOM part directly. */
+#health-latest::part(base) {
+  background: rgba(30, 41, 59, 0.4);
+  backdrop-filter: blur(12px);
+  border-color: rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+}
+
+/* A2A-49: Health tab — step icons and status reinforcement.
+   Shoelace badge variants (success/danger/warning) already provide
+   green/red/yellow colors in dark theme — no override needed. */
+#health-latest details ul {
+  list-style: none;
+  padding-left: 0;
+}
+
+#health-latest details li {
+  padding: 0.3rem 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+  font-size: 0.85rem;
+}
+
+#health-latest details li:last-child {
+  border-bottom: none;
+}
+
+/* A2A-49: Native <details> dark styling inside health cards */
+#health-latest details > summary {
+  cursor: pointer;
+  color: var(--ink-muted);
+  font-size: 0.85rem;
+  padding: 0.3rem 0;
+}
+
+#health-latest details > summary:hover {
   color: var(--ink);
 }
 

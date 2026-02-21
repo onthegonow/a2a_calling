@@ -438,7 +438,7 @@ function renderContacts() {
         </td>
         ${locationCell}
         ${ownerCell}
-        <td>${esc(c?.status || '-')}</td>
+        <td><span class="contact-status" data-status="${esc(c?.status || 'unknown')}">${esc(c?.status || '-')}</span></td>
         <td>${esc(String(calls))}</td>
         <td>${esc(lastCallAt)}</td>
         ${summaryCell}
@@ -1107,7 +1107,7 @@ function renderLogs() {
     const trace = row.trace_id || '';
     tr.innerHTML = `
       <td>${esc(fmtDate(row.timestamp))}</td>
-      <td>${esc(row.level || '-')}</td>
+      <td><span class="log-level" data-level="${esc(row.level || '')}">${esc(row.level || '-')}</span></td>
       <td>${esc(row.component || '-')}</td>
       <td>${esc(row.event || '-')}</td>
       <td title="${esc(row.message || '')}">${esc(String(row.message || '').slice(0, 120) || '-')}</td>
