@@ -180,6 +180,11 @@ h3 {
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   gap: 0.6rem;
   margin-bottom: 0.9rem;
+  /* A2A-49: Subtle background for filter areas */
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 0.8rem;
 }
 
 /* A2A-47: Glass-panel style for cards in dark theme */
@@ -1115,6 +1120,38 @@ table tbody tr:hover td {
 
 .log-level[data-level="trace"] {
   color: #6B7280;
+}
+
+/* A2A-49: Dark monospace code elements */
+code {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+  padding: 0.1em 0.35em;
+  font-size: 0.85em;
+  color: #E2E8F0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+}
+
+/* A2A-49: pre.summary gets dark background. This SUPPLEMENTS the existing
+   .summary rule (max-width + white-space) — do NOT remove .summary. */
+pre.summary {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 0.75em;
+  color: var(--ink);
+}
+
+/* A2A-49: sl-details summary bar dark polish */
+sl-details::part(summary) {
+  font-weight: 500;
+  color: var(--ink);
+}
+
+sl-details::part(base) {
+  background: var(--card-bg);
+  border-color: var(--line);
 }
 
 /* ── A2A-48: Hide permissions sidebar below 1280px ─────────── */
