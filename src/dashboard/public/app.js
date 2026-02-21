@@ -17,7 +17,10 @@ const state = {
     lastEventId: null
   },
   // A2A-47: Track active panel for sidebar navigation (replaces sl-tab-group)
-  activeTab: 'contacts'
+  activeTab: 'contacts',
+  // A2A-48: Track currently selected tier for the permissions panel.
+  // Replaces the old #tier-select dropdown value.
+  activeTierId: 'public'
 };
 
 let dashboardEventSource = null;
@@ -1159,53 +1162,113 @@ const TOOL_DESCRIPTIONS = {
 // A2A-41: standard tier order for inheritance. Custom tiers are not in this list.
 const TIER_ORDER = ['public', 'friends', 'family'];
 
-// A2A-41: renders tool checkboxes instead of a textarea. Each tool gets
-// a checkbox with its description. Checked state comes from tier.allowed_tools.
-function renderToolCheckboxes(allowedTools) {
-  const container = document.getElementById('tier-tools-list');
-  container.innerHTML = Object.entries(TOOL_DESCRIPTIONS).map(([tool, desc]) => {
-    const checked = (allowedTools || []).includes(tool) ? 'checked' : '';
-    return `<sl-checkbox value="${esc(tool)}" ${checked}><strong>${esc(tool)}</strong> \u2014 <span class="tool-desc">${esc(desc)}</span></sl-checkbox>`;
+// A2A-48: Material icon mapping for tier cards. Standard tiers get recognizable
+// icons; custom tiers get a wrench icon. Used by renderTierCards().
+const TIER_ICONS = { public: 'public', friends: 'group', family: 'family_restroom' };
+
+// A2A-48: Color mapping for tool icons in toggle cards. Gives each tool a
+// distinct color matching the concept mock's visual differentiation.
+const TOOL_ICON_MAP = {
+  'Bash': { icon: 'terminal', bg: 'rgba(99,102,241,0.2)', color: '#818CF8', border: 'rgba(99,102,241,0.2)' },
+  'Bash(readonly)': { icon: 'terminal', bg: 'rgba(99,102,241,0.15)', color: '#A5B4FC', border: 'rgba(99,102,241,0.15)' },
+  'Read': { icon: 'visibility', bg: 'rgba(59,130,246,0.2)', color: '#60A5FA', border: 'rgba(59,130,246,0.2)' },
+  'Grep': { icon: 'search', bg: 'rgba(139,92,246,0.2)', color: '#A78BFA', border: 'rgba(139,92,246,0.2)' },
+  'Glob': { icon: 'folder_open', bg: 'rgba(16,185,129,0.2)', color: '#34D399', border: 'rgba(16,185,129,0.2)' },
+  'WebSearch': { icon: 'public', bg: 'rgba(245,158,11,0.2)', color: '#FBBF24', border: 'rgba(245,158,11,0.2)' },
+  'WebFetch': { icon: 'language', bg: 'rgba(236,72,153,0.2)', color: '#F472B6', border: 'rgba(236,72,153,0.2)' }
+};
+
+// A2A-48: Renders tier cards grid. Active card gets .active class with glow.
+function renderTierCards() {
+  const container = document.getElementById('tier-cards');
+  if (!container) return;
+  const tiers = (state.settings?.tiers || []).slice().sort((a, b) => {
+    const aIdx = TIER_ORDER.indexOf(a.id);
+    const bIdx = TIER_ORDER.indexOf(b.id);
+    if (aIdx >= 0 && bIdx >= 0) return aIdx - bIdx;
+    if (aIdx >= 0) return -1;
+    if (bIdx >= 0) return 1;
+    return a.id.localeCompare(b.id);
+  });
+
+  container.innerHTML = tiers.map(tier => {
+    const isActive = tier.id === state.activeTierId;
+    const icon = TIER_ICONS[tier.id] || 'build';
+    const iconColor = isActive ? '#60A5FA' : '#6B7280';
+    return `
+      <div class="tier-card${isActive ? ' active' : ''}" data-tier-id="${esc(tier.id)}">
+        <span class="material-symbols-outlined tier-card-icon" style="color:${iconColor};">${icon}</span>
+        <span class="tier-card-name">${esc(tier.name || tier.id)}</span>
+        ${isActive ? '<div class="status-dot status-dot--green"></div>' : ''}
+      </div>
+    `;
   }).join('');
 }
 
-// A2A-41: renders topics as expandable card rows with descriptions.
-// Data comes from tier.manifest.topics (array of {topic, description} objects).
-// Falls back to tier.topics (flat string array) for topics without manifest data.
-function renderTopicList(tier) {
-  const container = document.getElementById('tier-topics-list');
+// A2A-48: Renders tool toggle cards (replaces checkboxes). Each tool is a
+// glass-panel card with icon, name, description, and a toggle switch.
+// Toggle change triggers autoSaveTier() for immediate persistence.
+function renderToolToggles(allowedTools) {
+  const container = document.getElementById('tool-toggles');
+  if (!container) return;
+  container.innerHTML = Object.entries(TOOL_DESCRIPTIONS).map(([tool, desc]) => {
+    const checked = (allowedTools || []).includes(tool);
+    const iconInfo = TOOL_ICON_MAP[tool] || { icon: 'extension', bg: 'rgba(100,116,139,0.2)', color: '#94A3B8', border: 'rgba(100,116,139,0.2)' };
+    return `
+      <div class="tool-toggle-card${checked ? ' enabled' : ''}">
+        <div class="tool-toggle-info">
+          <div class="tool-icon" style="background:${iconInfo.bg};color:${iconInfo.color};border:1px solid ${iconInfo.border};">
+            <span class="material-symbols-outlined">${iconInfo.icon}</span>
+          </div>
+          <div>
+            <h3>${esc(tool)}</h3>
+            <p>${esc(desc)}</p>
+          </div>
+        </div>
+        <label class="toggle-switch">
+          <input type="checkbox" data-tool="${esc(tool)}" ${checked ? 'checked' : ''}>
+          <span class="slider"></span>
+        </label>
+      </div>
+    `;
+  }).join('');
+}
+
+// A2A-48: Renders active topics in the drop zone as teal-accented cards.
+// Each card has a close button for removal. Updates #topic-count badge.
+function renderActiveTopics(tier) {
+  const container = document.getElementById('active-topics-zone');
+  if (!container) return;
   const manifestTopics = tier.manifest?.topics || [];
   const flatTopics = tier.topics || [];
 
-  // A2A-41: prefer manifest data (has descriptions), fall back to flat array
   const allTopics = manifestTopics.length > 0
     ? manifestTopics.map(t => ({ label: t.topic, desc: t.description || '' }))
     : flatTopics.map(t => ({ label: t, desc: '' }));
 
-  const rowsHtml = allTopics.map(t => `
-    <div class="topic-row" data-topic="${esc(t.label)}" data-type="topic">
-      <span class="drag-handle">\u2807</span>
-      <div class="topic-content">
-        <div class="topic-header">
-          <strong class="topic-label">${esc(t.label)}</strong>
-          <sl-icon-button name="chevron-down" class="topic-expand-btn" label="Expand"></sl-icon-button>
-          <sl-icon-button name="trash" class="topic-delete-btn" label="Delete"></sl-icon-button>
-        </div>
-        <div class="topic-description" style="display:none;">
-          <p class="topic-desc-text">${esc(t.desc) || '<em>No description</em>'}</p>
-          <sl-input class="topic-desc-edit" size="small" placeholder="Add description..." value="${esc(t.desc)}"></sl-input>
-        </div>
+  const cardsHtml = allTopics.map(t => `
+    <div class="active-item-card active-item-card--teal" data-topic="${esc(t.label)}" data-description="${esc(t.desc)}">
+      <div>
+        <div class="item-name">${esc(t.label)}</div>
+        <div class="item-type-label">Topic</div>
       </div>
+      <button class="item-close-btn" data-remove-topic="${esc(t.label)}">
+        <span class="material-symbols-outlined" style="font-size:16px;">close</span>
+      </button>
     </div>
   `).join('');
 
-  container.innerHTML = rowsHtml + `<button class="add-item-btn" data-type="topic">+ Add topic</button>`;
+  container.innerHTML = cardsHtml + '<div class="drop-placeholder"><span>+ Drop Topic</span></div>';
+
+  const badge = document.getElementById('topic-count');
+  if (badge) badge.textContent = `${allTopics.length} Active`;
 }
 
-// A2A-41: renders goals as expandable card rows, identical pattern to topics.
-// Data from tier.manifest.objectives (array of {objective, description}).
-function renderGoalList(tier) {
-  const container = document.getElementById('tier-goals-list');
+// A2A-48: Renders active goals in the drop zone as yellow-accented cards.
+// Same pattern as topics but with yellow color variant.
+function renderActiveGoals(tier) {
+  const container = document.getElementById('active-goals-zone');
+  if (!container) return;
   const manifestGoals = tier.manifest?.objectives || [];
   const flatGoals = tier.goals || [];
 
@@ -1213,129 +1276,283 @@ function renderGoalList(tier) {
     ? manifestGoals.map(g => ({ label: g.objective || g.topic, desc: g.description || '' }))
     : flatGoals.map(g => ({ label: g, desc: '' }));
 
-  const rowsHtml = allGoals.map(g => `
-    <div class="topic-row" data-topic="${esc(g.label)}" data-type="goal">
-      <span class="drag-handle">\u2807</span>
-      <div class="topic-content">
-        <div class="topic-header">
-          <strong class="topic-label">${esc(g.label)}</strong>
-          <sl-icon-button name="chevron-down" class="topic-expand-btn" label="Expand"></sl-icon-button>
-          <sl-icon-button name="trash" class="topic-delete-btn" label="Delete"></sl-icon-button>
-        </div>
-        <div class="topic-description" style="display:none;">
-          <p class="topic-desc-text">${esc(g.desc) || '<em>No description</em>'}</p>
-          <sl-input class="topic-desc-edit" size="small" placeholder="Add description..." value="${esc(g.desc)}"></sl-input>
-        </div>
+  const cardsHtml = allGoals.map(g => `
+    <div class="active-item-card active-item-card--yellow" data-topic="${esc(g.label)}" data-description="${esc(g.desc)}">
+      <div>
+        <div class="item-name">${esc(g.label)}</div>
+        <div class="item-type-label">Goal</div>
       </div>
+      <button class="item-close-btn" data-remove-goal="${esc(g.label)}">
+        <span class="material-symbols-outlined" style="font-size:16px;">close</span>
+      </button>
     </div>
   `).join('');
 
-  container.innerHTML = rowsHtml + `<button class="add-item-btn" data-type="goal">+ Add goal</button>`;
+  container.innerHTML = cardsHtml + '<div class="drop-placeholder"><span>+ Drop Goal</span></div>';
+
+  const badge = document.getElementById('goal-count');
+  if (badge) badge.textContent = `${allGoals.length} Active`;
 }
 
-// A2A-41: event delegation for topic and goal list interactions.
-// Uses a single click handler on each container instead of per-row binding,
-// preventing listener accumulation when topics are added dynamically.
-function bindItemListDelegation() {
-  ['tier-topics-list', 'tier-goals-list'].forEach(containerId => {
-    const container = document.getElementById(containerId);
-    if (!container) return;
+// A2A-48: Orchestrator that renders the entire permissions panel.
+// Uses state.activeTierId instead of reading a dropdown value.
+function renderPermissions() {
+  const tier = (state.settings?.tiers || []).find(t => t.id === state.activeTierId);
+  if (!tier) return;
+  renderTierCards();
+  renderActiveTopics(tier);
+  renderActiveGoals(tier);
+  renderToolToggles(tier.allowed_tools);
+  renderTierWarnings(tier);
+  renderSidebarPreview(state.activeTierId);
+  renderSidebarLists(tier);
+  bindSidebarDrag();
+}
 
-    container.addEventListener('click', (e) => {
-      // Expand/collapse
-      const expandBtn = e.target.closest('.topic-expand-btn');
-      if (expandBtn) {
-        const row = expandBtn.closest('.topic-row');
-        const desc = row.querySelector('.topic-description');
-        if (desc) {
-          const isHidden = desc.style.display === 'none';
-          desc.style.display = isHidden ? '' : 'none';
-          expandBtn.name = isHidden ? 'chevron-up' : 'chevron-down';
-        }
-        return;
+// A2A-48: Renders the inline "Preview as Caller" card in the right sidebar.
+// Reuses getPreviewData() to show merged topics, goals, and tool count.
+function renderSidebarPreview(tierId) {
+  const container = document.getElementById('perm-preview');
+  if (!container) return;
+  const data = getPreviewData(tierId);
+  const tierName = (state.settings?.tiers || []).find(t => t.id === tierId)?.name || tierId;
+  const topicNames = data.topics.map(t => t.topic).filter(Boolean);
+  const goalNames = data.objectives.map(g => g.objective || g.topic).filter(Boolean);
+  const toolCount = data.tools.size;
+
+  const topicText = topicNames.length > 0 ? `<strong style="color:#2DD4BF;">${esc(topicNames.join(', '))}</strong>` : '<em>no topics</em>';
+  const goalText = goalNames.length > 0 ? `<strong style="color:#FBBF24;">${esc(goalNames.join(', '))}</strong>` : '<em>no goals</em>';
+
+  container.innerHTML = `
+    <div class="preview-card-inner">
+      <div class="sidebar-list-header">Preview as Caller</div>
+      <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.5rem;">
+        <span class="material-symbols-outlined" style="color:#60A5FA;">smart_toy</span>
+        <div>
+          <div style="font-weight:600;font-size:0.85rem;color:var(--ink);">Agent Permission</div>
+          <span class="preview-tier-badge">${esc(tierName)} Tier</span>
+        </div>
+      </div>
+      <div class="preview-summary">
+        This agent can discuss ${topicText} to help ${goalText} using <strong>${toolCount} tool${toolCount !== 1 ? 's' : ''}</strong>.
+      </div>
+      <div class="preview-footer">
+        <span style="display:flex;align-items:center;gap:0.3rem;">
+          <span class="status-dot status-dot--green"></span> Active
+        </span>
+        <span style="font-family:monospace;opacity:0.7;">JSON Valid</span>
+      </div>
+    </div>
+  `;
+}
+
+// A2A-48: Renders all topics and goals in the right sidebar as draggable items.
+// Items active in the current tier are dimmed with an "(Active)" label.
+function renderSidebarLists(tier) {
+  const topicContainer = document.getElementById('sidebar-topics');
+  const goalContainer = document.getElementById('sidebar-goals');
+  if (!topicContainer || !goalContainer) return;
+
+  // Collect ALL topics across ALL tiers for the sidebar
+  const allTiers = state.settings?.tiers || [];
+  const allTopicMap = new Map();
+  const allGoalMap = new Map();
+  for (const t of allTiers) {
+    const mTopics = t.manifest?.topics || [];
+    const fTopics = t.topics || [];
+    const topics = mTopics.length > 0 ? mTopics : fTopics.map(x => ({ topic: x, description: '' }));
+    for (const item of topics) {
+      if (item.topic && !allTopicMap.has(item.topic)) {
+        allTopicMap.set(item.topic, item.description || '');
       }
-
-      // Delete
-      const deleteBtn = e.target.closest('.topic-delete-btn');
-      if (deleteBtn) {
-        deleteBtn.closest('.topic-row').remove();
-        return;
+    }
+    const mGoals = t.manifest?.objectives || [];
+    const fGoals = t.goals || [];
+    const goals = mGoals.length > 0 ? mGoals : fGoals.map(x => ({ topic: x, description: '' }));
+    for (const item of goals) {
+      const label = item.objective || item.topic;
+      if (label && !allGoalMap.has(label)) {
+        allGoalMap.set(label, item.description || '');
       }
+    }
+  }
 
-      // Add new item
-      const addBtn = e.target.closest('.add-item-btn');
-      if (addBtn) {
-        const type = addBtn.dataset.type;
-        const label = type === 'topic' ? 'Topic name' : 'Goal name';
-        const newRow = document.createElement('div');
-        newRow.className = 'topic-row';
-        newRow.dataset.type = type;
-        newRow.innerHTML = `
-          <span class="drag-handle">\u2807</span>
-          <div class="topic-content">
-            <sl-input class="new-item-label" size="small" placeholder="${label}" autofocus></sl-input>
-            <sl-input class="new-item-desc" size="small" placeholder="Description (optional)"></sl-input>
-            <div class="row" style="margin-top:0.3rem;">
-              <sl-button size="small" variant="primary" class="confirm-add-btn">Add</sl-button>
-              <sl-button size="small" class="cancel-add-btn">Cancel</sl-button>
-            </div>
-          </div>
-        `;
-        container.insertBefore(newRow, addBtn);
-        return;
-      }
+  // Determine which are active in the current tier
+  const activeTopicSet = new Set((tier.topics || []).concat(
+    (tier.manifest?.topics || []).map(t => t.topic)
+  ).filter(Boolean));
+  const activeGoalSet = new Set((tier.goals || []).concat(
+    (tier.manifest?.objectives || []).map(g => g.objective || g.topic)
+  ).filter(Boolean));
 
-      // Confirm add
-      const confirmBtn = e.target.closest('.confirm-add-btn');
-      if (confirmBtn) {
-        const row = confirmBtn.closest('.topic-row');
-        const nameInput = row.querySelector('.new-item-label');
-        const descInput = row.querySelector('.new-item-desc');
-        const name = nameInput.value.trim();
-        if (!name) { nameInput.focus(); return; }
+  // Render topics sidebar
+  const topicItems = Array.from(allTopicMap.entries()).map(([name, desc]) => {
+    const isActive = activeTopicSet.has(name);
+    return `
+      <div class="sidebar-item${isActive ? ' active-in-zone' : ''}" draggable="${isActive ? 'false' : 'true'}" data-sidebar-topic="${esc(name)}" data-description="${esc(desc)}" data-item-type="topic">
+        <div style="display:flex;align-items:center;gap:0.4rem;">
+          ${isActive ? '' : '<span class="material-symbols-outlined" style="color:#4B5563;font-size:1rem;cursor:grab;">drag_indicator</span>'}
+          <span class="sidebar-item-name">${esc(name)}${isActive ? ' <span class="sidebar-item-active-label">(Active)</span>' : ''}</span>
+        </div>
+      </div>
+    `;
+  }).join('');
 
-        row.dataset.topic = name;
-        row.innerHTML = `
-          <span class="drag-handle">\u2807</span>
-          <div class="topic-content">
-            <div class="topic-header">
-              <strong class="topic-label">${esc(name)}</strong>
-              <sl-icon-button name="chevron-down" class="topic-expand-btn" label="Expand"></sl-icon-button>
-              <sl-icon-button name="trash" class="topic-delete-btn" label="Delete"></sl-icon-button>
-            </div>
-            <div class="topic-description" style="display:none;">
-              <p class="topic-desc-text">${esc(descInput.value)}</p>
-              <sl-input class="topic-desc-edit" size="small" placeholder="Add description..." value="${esc(descInput.value)}"></sl-input>
-            </div>
-          </div>
-        `;
-        return;
-      }
+  topicContainer.innerHTML = `
+    <div class="sidebar-list-header">Topics</div>
+    ${topicItems}
+    <button class="sidebar-add-btn" data-add-type="topic">
+      <span class="material-symbols-outlined" style="font-size:14px;">add</span> Add Topic
+    </button>
+  `;
 
-      // Cancel add
-      const cancelBtn = e.target.closest('.cancel-add-btn');
-      if (cancelBtn) {
-        cancelBtn.closest('.topic-row').remove();
-        return;
-      }
+  // Render goals sidebar
+  const goalItems = Array.from(allGoalMap.entries()).map(([name, desc]) => {
+    const isActive = activeGoalSet.has(name);
+    return `
+      <div class="sidebar-item${isActive ? ' active-in-zone' : ''}" draggable="${isActive ? 'false' : 'true'}" data-sidebar-goal="${esc(name)}" data-description="${esc(desc)}" data-item-type="goal">
+        <div style="display:flex;align-items:center;gap:0.4rem;">
+          ${isActive ? '' : '<span class="material-symbols-outlined" style="color:#4B5563;font-size:1rem;cursor:grab;">drag_indicator</span>'}
+          <span class="sidebar-item-name">${esc(name)}${isActive ? ' <span class="sidebar-item-active-label">(Active)</span>' : ''}</span>
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  goalContainer.innerHTML = `
+    <div class="sidebar-list-header">Goals &amp; Objectives</div>
+    ${goalItems}
+    <button class="sidebar-add-btn" data-add-type="goal">
+      <span class="material-symbols-outlined" style="font-size:14px;">add</span> Add Goal
+    </button>
+  `;
+}
+
+// A2A-48: Debounced auto-save replaces explicit Save Tier button.
+// 250ms delay prevents excessive API calls during rapid changes.
+let _autoSaveTimer = null;
+function autoSaveTier() {
+  clearTimeout(_autoSaveTimer);
+  _autoSaveTimer = setTimeout(async () => {
+    const tierId = state.activeTierId;
+    if (!tierId) return;
+
+    // Collect tools from toggle states
+    const toggles = document.querySelectorAll('#tool-toggles .toggle-switch input');
+    const allowed_tools = Array.from(toggles).filter(t => t.checked).map(t => t.dataset.tool);
+
+    // Collect topics from active zone
+    const topicCards = document.querySelectorAll('#active-topics-zone .active-item-card');
+    // A2A-48: uses dataset.topic for BOTH topics and goals (NOT dataset.objective)
+    // because parseTopicObjects() in dashboard.js:160 only reads entry.topic.
+    // The semantic distinction (objective vs topic) is UI-only; storage layer
+    // uses {topic, description} uniformly for both types.
+    const topics = Array.from(topicCards).map(c => c.dataset.topic).filter(Boolean);
+    const manifestTopics = Array.from(topicCards).map(c => ({
+      topic: c.dataset.topic,
+      description: c.dataset.description || ''
+    })).filter(t => t.topic);
+
+    // Collect goals from active zone
+    const goalCards = document.querySelectorAll('#active-goals-zone .active-item-card');
+    const goals = Array.from(goalCards).map(c => c.dataset.topic).filter(Boolean);
+    const manifestObjectives = Array.from(goalCards).map(c => ({
+      topic: c.dataset.topic,
+      description: c.dataset.description || ''
+    })).filter(g => g.topic);
+
+    const body = { allowed_tools, topics, goals, manifest: { topics: manifestTopics, objectives: manifestObjectives } };
+    try {
+      await request(`/settings/tiers/${encodeURIComponent(tierId)}`, {
+        method: 'PUT', body: JSON.stringify(body)
+      });
+      showNotice('Saved');
+    } catch (err) {
+      showNotice(`Save failed: ${err.message}`);
+    }
+    // A2A-48: Refresh state from server to stay in sync after auto-save
+    const payload = await request('/settings');
+    state.settings = payload;
+  }, 250);
+}
+
+// A2A-48: HTML5 drag-and-drop from sidebar items to active zones.
+// Enables dragging topics/goals from the sidebar list into the
+// #active-topics-zone or #active-goals-zone. On drop, the item is
+// added to the zone and auto-saved.
+function bindSidebarDrag() {
+  const topicZone = document.getElementById('active-topics-zone');
+  const goalZone = document.getElementById('active-goals-zone');
+
+  // Make sidebar items draggable
+  document.querySelectorAll('.sidebar-item[draggable="true"]').forEach(item => {
+    item.addEventListener('dragstart', (e) => {
+      const itemType = item.dataset.itemType || 'topic';
+      const name = item.dataset.sidebarTopic || item.dataset.sidebarGoal || '';
+      const desc = item.dataset.description || '';
+      e.dataTransfer.setData('application/json', JSON.stringify({ name, description: desc, type: itemType }));
+      item.style.opacity = '0.5';
     });
+    item.addEventListener('dragend', () => { item.style.opacity = ''; });
+  });
 
-    // Description edit via sl-change (Shoelace event, delegated)
-    container.addEventListener('sl-change', (e) => {
-      const input = e.target.closest('.topic-desc-edit');
-      if (input) {
-        const row = input.closest('.topic-row');
-        const textEl = row.querySelector('.topic-desc-text');
-        if (textEl) textEl.textContent = input.value || '';
+  // Drop zone handlers
+  [topicZone, goalZone].forEach(zone => {
+    if (!zone) return;
+    zone.addEventListener('dragover', (e) => { e.preventDefault(); zone.classList.add('drag-over'); });
+    zone.addEventListener('dragleave', () => zone.classList.remove('drag-over'));
+    zone.addEventListener('drop', (e) => {
+      e.preventDefault();
+      zone.classList.remove('drag-over');
+      let data;
+      try { data = JSON.parse(e.dataTransfer.getData('application/json')); } catch { return; }
+      if (!data.name) return;
+
+      // A2A-48: Determine target type from which zone received the drop
+      const isTopicZone = zone.id === 'active-topics-zone';
+      const accentClass = isTopicZone ? 'active-item-card--teal' : 'active-item-card--yellow';
+      const typeLabel = isTopicZone ? 'Topic' : 'Goal';
+      const removeAttr = isTopicZone ? 'data-remove-topic' : 'data-remove-goal';
+
+      // Check if already in zone
+      const existing = zone.querySelectorAll('.active-item-card');
+      for (const card of existing) {
+        if (card.dataset.topic === data.name) return; // already active
+      }
+
+      // Insert before the placeholder
+      const placeholder = zone.querySelector('.drop-placeholder');
+      const card = document.createElement('div');
+      card.className = `active-item-card ${accentClass}`;
+      card.dataset.topic = data.name;
+      card.dataset.description = data.description || '';
+      card.innerHTML = `
+        <div>
+          <div class="item-name">${esc(data.name)}</div>
+          <div class="item-type-label">${typeLabel}</div>
+        </div>
+        <button class="item-close-btn" ${removeAttr}="${esc(data.name)}">
+          <span class="material-symbols-outlined" style="font-size:16px;">close</span>
+        </button>
+      `;
+      zone.insertBefore(card, placeholder);
+      autoSaveTier();
+
+      // Update sidebar to show item as active
+      const tier = (state.settings?.tiers || []).find(t => t.id === state.activeTierId);
+      if (tier) {
+        // A2A-48: Defer sidebar re-render slightly to let auto-save complete
+        setTimeout(() => renderSidebarLists(tier), 300);
       }
     });
   });
 }
 
-function fillTierSelects() {
+// A2A-48: Extracted from old fillTierSelects(). Populates only the
+// #invite-tier (Invites tab) and #new-tier-copy-from (Settings details).
+// Does NOT populate the removed #tier-select or #copy-from-tier.
+function populateInviteTierSelect() {
   const tiers = (state.settings?.tiers || []).slice().sort((a, b) => a.id.localeCompare(b.id));
-  const tierSelect = document.getElementById('tier-select');
-  const copyFrom = document.getElementById('copy-from-tier');
   const newTierCopy = document.getElementById('new-tier-copy-from');
   const inviteTier = document.getElementById('invite-tier');
 
@@ -1344,171 +1561,12 @@ function fillTierSelects() {
     return `<sl-option value="${esc(tier.id)}">${emoji} ${esc(tier.name || tier.id)}</sl-option>`;
   }).join('');
 
-  tierSelect.innerHTML = optionsHtml;
-  copyFrom.innerHTML = optionsHtml;
-  inviteTier.innerHTML = optionsHtml;
-  newTierCopy.innerHTML = `<sl-option value="">None</sl-option>${optionsHtml}`;
+  if (inviteTier) inviteTier.innerHTML = optionsHtml;
+  if (newTierCopy) newTierCopy.innerHTML = `<sl-option value="">None</sl-option>${optionsHtml}`;
 
-  // A2A-41: default to 'public' — it's the base tier and most commonly edited
+  // A2A-48: Default invite tier to 'public'
   const defaultTier = tiers.find(t => t.id === 'public') ? 'public' : tiers[0]?.id;
-  if (defaultTier) {
-    tierSelect.value = defaultTier;
-    copyFrom.value = defaultTier;
-    inviteTier.value = defaultTier;
-    renderTierEditor(defaultTier);
-  }
-}
-
-function renderTierEditor(tierId) {
-  const tier = (state.settings?.tiers || []).find(t => t.id === tierId);
-  if (!tier) return;
-
-  document.getElementById('tier-name').value = tier.name || tier.id;
-  document.getElementById('tier-description').value = tier.description || '';
-  renderToolCheckboxes(tier.allowed_tools);
-  renderTopicList(tier);
-  renderGoalList(tier);
-  renderTierWarnings(tier);
-  renderTierColumns();
-}
-
-// A2A-41: renders the three-column drag zone showing all standard tiers
-// side-by-side. Inherited topics shown as grayed-out non-draggable rows.
-// Custom tiers are not shown here — they don't have a defined inheritance
-// hierarchy. HTML5 drag-and-drop does NOT work on touch devices (mobile).
-function renderTierColumns() {
-  const container = document.getElementById('tier-columns');
-  if (!container) return;
-  const tiers = state.settings?.tiers || [];
-  const toggle = document.getElementById('show-drag-columns');
-  container.style.display = toggle?.checked ? '' : 'none';
-
-  const html = TIER_ORDER.map(tierId => {
-    const tier = tiers.find(t => t.id === tierId);
-    if (!tier) return '';
-
-    const emoji = TIER_EMOJIS[tierId] || '\u{1F527}';
-    const tierIdx = TIER_ORDER.indexOf(tierId);
-
-    // Inherited topics from lower tiers
-    let inheritedRows = '';
-    for (let i = 0; i < tierIdx; i++) {
-      const lowerTier = tiers.find(t => t.id === TIER_ORDER[i]);
-      if (!lowerTier) continue;
-      const lowerTopics = lowerTier.manifest?.topics?.length
-        ? lowerTier.manifest.topics
-        : (lowerTier.topics || []).map(t => ({ topic: t, description: '' }));
-      lowerTopics.forEach(t => {
-        inheritedRows += `
-          <div class="topic-row inherited" data-topic="${esc(t.topic)}" data-tier="${esc(TIER_ORDER[i])}">
-            <div class="topic-content">
-              <div class="topic-header">
-                <strong class="topic-label">${esc(t.topic)}</strong>
-                <span class="inherited-badge">from ${esc(TIER_ORDER[i])}</span>
-              </div>
-            </div>
-          </div>`;
-      });
-    }
-
-    // Own topics — draggable
-    const ownTopics = tier.manifest?.topics?.length
-      ? tier.manifest.topics
-      : (tier.topics || []).map(t => ({ topic: t, description: '' }));
-    const ownRows = ownTopics.map(t => `
-      <div class="topic-row" draggable="true" data-topic="${esc(t.topic)}" data-tier="${esc(tierId)}">
-        <span class="drag-handle">\u2807</span>
-        <div class="topic-content">
-          <div class="topic-header">
-            <strong class="topic-label">${esc(t.topic)}</strong>
-          </div>
-        </div>
-      </div>
-    `).join('');
-
-    return `
-      <div class="tier-column" data-tier="${esc(tierId)}">
-        <h4>${emoji} ${esc(tier.name || tierId)}</h4>
-        <div class="tier-drop-zone" data-tier="${esc(tierId)}">
-          ${inheritedRows}${ownRows}
-        </div>
-      </div>`;
-  }).join('');
-
-  container.innerHTML = html;
-  bindDragEvents();
-}
-
-// A2A-41: HTML5 drag-and-drop handlers for moving topics between tier columns.
-// On drop, both tiers are saved via Promise.all() to prevent data loss if one
-// request fails. On error, state is reloaded from server to reset UI.
-function bindDragEvents() {
-  const zones = document.querySelectorAll('.tier-drop-zone');
-
-  document.querySelectorAll('.tier-columns .topic-row[draggable="true"]').forEach(row => {
-    row.addEventListener('dragstart', (e) => {
-      e.dataTransfer.setData('application/json', JSON.stringify({
-        topic: row.dataset.topic,
-        sourceTier: row.dataset.tier
-      }));
-      row.classList.add('dragging');
-    });
-    row.addEventListener('dragend', () => row.classList.remove('dragging'));
-  });
-
-  zones.forEach(zone => {
-    zone.addEventListener('dragover', (e) => {
-      e.preventDefault();
-      zone.classList.add('drag-over');
-    });
-    zone.addEventListener('dragleave', () => zone.classList.remove('drag-over'));
-    zone.addEventListener('drop', async (e) => {
-      e.preventDefault();
-      zone.classList.remove('drag-over');
-
-      let data;
-      try { data = JSON.parse(e.dataTransfer.getData('application/json')); } catch { return; }
-      const { topic, sourceTier } = data;
-      const targetTier = zone.dataset.tier;
-
-      if (!topic || !sourceTier || !targetTier || sourceTier === targetTier) return;
-
-      const sourceTierData = (state.settings?.tiers || []).find(t => t.id === sourceTier);
-      const targetTierData = (state.settings?.tiers || []).find(t => t.id === targetTier);
-      if (!sourceTierData || !targetTierData) return;
-
-      const sourceTopics = (sourceTierData.topics || []).filter(t => t !== topic);
-      const sourceManifestTopics = (sourceTierData.manifest?.topics || []).filter(t => t.topic !== topic);
-      const movedManifest = (sourceTierData.manifest?.topics || []).find(t => t.topic === topic);
-      const targetTopics = [...(targetTierData.topics || []), topic];
-      const targetManifestTopics = [...(targetTierData.manifest?.topics || []), movedManifest || { topic, description: '' }];
-
-      // A2A-41: save both tiers atomically with Promise.all to prevent
-      // data loss if one request fails. On error, reload from server.
-      try {
-        await Promise.all([
-          request(`/settings/tiers/${encodeURIComponent(sourceTier)}`, {
-            method: 'PUT',
-            body: JSON.stringify({
-              topics: sourceTopics,
-              manifest: { topics: sourceManifestTopics, objectives: sourceTierData.manifest?.objectives || [] }
-            })
-          }),
-          request(`/settings/tiers/${encodeURIComponent(targetTier)}`, {
-            method: 'PUT',
-            body: JSON.stringify({
-              topics: targetTopics,
-              manifest: { topics: targetManifestTopics, objectives: targetTierData.manifest?.objectives || [] }
-            })
-          })
-        ]);
-        showNotice(`Moved "${topic}" from ${sourceTier} to ${targetTier}`);
-      } catch (err) {
-        showNotice(`Move failed: ${err.message}. Reloading...`);
-      }
-      await loadSettings();
-    });
-  });
+  if (defaultTier && inviteTier) inviteTier.value = defaultTier;
 }
 
 // A2A-41: contextual validation warnings for the currently selected tier.
@@ -1585,10 +1643,10 @@ function getPreviewData(tierId) {
   return merged;
 }
 
-// A2A-41: opens the caller preview dialog showing the merged effective view
-// for the selected tier. Helps the agent owner understand what a caller sees.
+// A2A-48: opens the caller preview dialog showing the merged effective view
+// for the selected tier. Uses state.activeTierId instead of removed #tier-select.
 function openCallerPreview() {
-  const tierId = document.getElementById('tier-select').value;
+  const tierId = state.activeTierId;
   const data = getPreviewData(tierId);
   const emoji = TIER_EMOJIS[tierId] || '\u{1F527}';
   const tierName = (state.settings?.tiers || []).find(t => t.id === tierId)?.name || tierId;
@@ -1632,72 +1690,134 @@ function openCallerPreview() {
   dialog.show();
 }
 
-function bindSettingsActions() {
-  document.getElementById('tier-select').addEventListener('sl-change', (e) => {
-    renderTierEditor(e.target.value);
-  });
+// A2A-48: Binds all event handlers for the permissions panel. Replaces old
+// bindSettingsActions() — removes handlers for deleted elements (tier-form,
+// tier-select, copy-tier-btn, show-drag-columns, preview-caller-btn) and
+// adds handlers for tier cards, tool toggles, close buttons, and sidebar.
+function bindPermissionsActions() {
+  const panel = document.getElementById('panel-permissions');
+  if (!panel) return;
 
-  document.getElementById('tier-form').addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const tierId = document.getElementById('tier-select').value;
+  // A2A-48: Tier card click — switch active tier and re-render
+  panel.addEventListener('click', (e) => {
+    const card = e.target.closest('.tier-card[data-tier-id]');
+    if (card) {
+      state.activeTierId = card.dataset.tierId;
+      renderPermissions();
+      autoSaveTier();
+      return;
+    }
 
-    // A2A-41: collect tools from checkboxes
-    const toolCheckboxes = document.querySelectorAll('#tier-tools-list sl-checkbox');
-    const allowed_tools = Array.from(toolCheckboxes)
-      .filter(cb => cb.checked)
-      .map(cb => cb.value);
+    // A2A-48: Close button on active topic cards
+    const removeTopic = e.target.closest('[data-remove-topic]');
+    if (removeTopic) {
+      const card = removeTopic.closest('.active-item-card');
+      if (card) card.remove();
+      autoSaveTier();
+      return;
+    }
 
-    // A2A-41: collect topics from row elements
-    const topicRows = document.querySelectorAll('#tier-topics-list .topic-row[data-topic]');
-    const topics = Array.from(topicRows).map(row => row.dataset.topic).filter(Boolean);
-    const manifestTopics = Array.from(topicRows).map(row => ({
-      topic: row.dataset.topic,
-      description: (row.querySelector('.topic-desc-edit')?.value || row.querySelector('.topic-desc-text')?.textContent || '').trim()
-    })).filter(t => t.topic);
+    // A2A-48: Close button on active goal cards
+    const removeGoal = e.target.closest('[data-remove-goal]');
+    if (removeGoal) {
+      const card = removeGoal.closest('.active-item-card');
+      if (card) card.remove();
+      autoSaveTier();
+      return;
+    }
 
-    // A2A-41: collect goals from row elements. IMPORTANT: use 'topic' key (NOT
-    // 'objective') because parseTopicObjects() in dashboard.js:160 only reads
-    // entry.topic. The semantic distinction 'objective' vs 'topic' is UI-only;
-    // the storage layer uses {topic, description} uniformly for both.
-    const goalRows = document.querySelectorAll('#tier-goals-list .topic-row[data-topic]');
-    const goals = Array.from(goalRows).map(row => row.dataset.topic).filter(Boolean);
-    const manifestObjectives = Array.from(goalRows).map(row => ({
-      topic: row.dataset.topic,
-      description: (row.querySelector('.topic-desc-edit')?.value || row.querySelector('.topic-desc-text')?.textContent || '').trim()
-    })).filter(g => g.topic);
+    // A2A-48: "+ New Tier" button scrolls to the new-tier form inside Settings details
+    const newTierBtn = e.target.closest('#perm-new-tier-btn');
+    if (newTierBtn) {
+      const details = panel.querySelector('sl-details');
+      if (details) details.open = true;
+      setTimeout(() => {
+        const el = document.getElementById('new-tier-id');
+        if (el) { el.scrollIntoView({ behavior: 'smooth' }); el.focus(); }
+      }, 200);
+      return;
+    }
 
-    const body = {
-      name: document.getElementById('tier-name').value,
-      description: document.getElementById('tier-description').value,
-      allowed_tools,
-      topics,
-      goals,
-      manifest: {
-        topics: manifestTopics,
-        objectives: manifestObjectives
+    // A2A-48: Sidebar "Add Topic" / "Add Goal" buttons open create dialog
+    const addBtn = e.target.closest('.sidebar-add-btn[data-add-type]');
+    if (addBtn) {
+      const type = addBtn.dataset.addType;
+      const dialog = document.getElementById('create-item-dialog');
+      if (dialog) {
+        dialog.label = `Create New ${type === 'topic' ? 'Topic' : 'Goal'}`;
+        dialog.dataset.createType = type;
+        const titleInput = document.getElementById('create-item-title');
+        const descInput = document.getElementById('create-item-desc');
+        if (titleInput) titleInput.value = '';
+        if (descInput) descInput.value = '';
+        dialog.show();
       }
-    };
-    await request(`/settings/tiers/${encodeURIComponent(tierId)}`, {
-      method: 'PUT',
-      body: JSON.stringify(body)
-    });
-    showNotice(`Saved tier "${tierId}"`);
-    await loadSettings();
+      return;
+    }
   });
 
-  document.getElementById('copy-tier-btn').addEventListener('click', async () => {
-    const toTier = document.getElementById('tier-select').value;
-    const fromTier = document.getElementById('copy-from-tier').value;
-    if (!toTier || !fromTier || toTier === fromTier) return;
-    await request(`/settings/tiers/${encodeURIComponent(toTier)}/copy-from/${encodeURIComponent(fromTier)}`, {
-      method: 'POST'
-    });
-    showNotice(`Copied "${fromTier}" -> "${toTier}"`);
-    await loadSettings();
-    renderTierEditor(toTier);
+  // A2A-48: Tool toggle change — auto-save and update card styling
+  panel.addEventListener('change', (e) => {
+    const toggle = e.target.closest('#tool-toggles .toggle-switch input');
+    if (toggle) {
+      const card = toggle.closest('.tool-toggle-card');
+      if (card) {
+        card.classList.toggle('enabled', toggle.checked);
+      }
+      autoSaveTier();
+      return;
+    }
   });
 
-  document.getElementById('defaults-form').addEventListener('submit', async (e) => {
+  // A2A-48: Create Item dialog — submit handler
+  document.getElementById('create-item-submit')?.addEventListener('click', () => {
+    const dialog = document.getElementById('create-item-dialog');
+    const titleInput = document.getElementById('create-item-title');
+    const descInput = document.getElementById('create-item-desc');
+    if (!dialog || !titleInput) return;
+
+    const title = titleInput.value.trim();
+    if (!title) { titleInput.focus(); return; }
+    const desc = descInput?.value?.trim() || '';
+    const type = dialog.dataset.createType || 'topic';
+
+    // A2A-48: Add item to the appropriate active zone
+    const zoneId = type === 'topic' ? 'active-topics-zone' : 'active-goals-zone';
+    const zone = document.getElementById(zoneId);
+    if (!zone) return;
+
+    const accentClass = type === 'topic' ? 'active-item-card--teal' : 'active-item-card--yellow';
+    const typeLabel = type === 'topic' ? 'Topic' : 'Goal';
+    const removeAttr = type === 'topic' ? 'data-remove-topic' : 'data-remove-goal';
+
+    const placeholder = zone.querySelector('.drop-placeholder');
+    const card = document.createElement('div');
+    card.className = `active-item-card ${accentClass}`;
+    card.dataset.topic = title;
+    card.dataset.description = desc;
+    card.innerHTML = `
+      <div>
+        <div class="item-name">${esc(title)}</div>
+        <div class="item-type-label">${typeLabel}</div>
+      </div>
+      <button class="item-close-btn" ${removeAttr}="${esc(title)}">
+        <span class="material-symbols-outlined" style="font-size:16px;">close</span>
+      </button>
+    `;
+    if (placeholder) zone.insertBefore(card, placeholder);
+    else zone.appendChild(card);
+
+    dialog.hide();
+    autoSaveTier();
+  });
+
+  // A2A-48: Create Item dialog — cancel handler
+  document.getElementById('create-item-cancel')?.addEventListener('click', () => {
+    document.getElementById('create-item-dialog')?.hide();
+  });
+
+  // Defaults form — unchanged from A2A-41
+  document.getElementById('defaults-form')?.addEventListener('submit', async (e) => {
     e.preventDefault();
     await request('/settings/defaults', {
       method: 'PUT',
@@ -1710,11 +1830,8 @@ function bindSettingsActions() {
     await loadSettings();
   });
 
-  document.getElementById('new-tier-btn').addEventListener('click', () => {
-    document.getElementById('new-tier-id').focus();
-  });
-
-  document.getElementById('new-tier-form').addEventListener('submit', async (e) => {
+  // A2A-48: New Tier form — uses state.activeTierId instead of removed #tier-select
+  document.getElementById('new-tier-form')?.addEventListener('submit', async (e) => {
     e.preventDefault();
     const tierId = document.getElementById('new-tier-id').value.trim();
     const name = document.getElementById('new-tier-name').value.trim();
@@ -1731,26 +1848,24 @@ function bindSettingsActions() {
     showNotice(`Created tier "${tierId}"`);
     document.getElementById('new-tier-form').reset();
     await loadSettings();
-    document.getElementById('tier-select').value = tierId;
-    renderTierEditor(tierId);
+    // A2A-48: Switch to the newly created tier (replaces old tier-select.value = tierId)
+    state.activeTierId = tierId;
+    renderPermissions();
   });
 
-  // A2A-41: toggle for three-column tier view
-  document.getElementById('show-drag-columns')?.addEventListener('sl-change', () => {
-    renderTierColumns();
-  });
-
-  document.getElementById('preview-caller-btn')?.addEventListener('click', openCallerPreview);
+  // Preview dialog close — unchanged
   document.getElementById('preview-close-btn')?.addEventListener('click', () => {
     document.getElementById('preview-dialog').hide();
   });
 }
 
+// A2A-48: Load settings and render permissions. Replaces fillTierSelects() and
+// renderTierColumns() calls with populateInviteTierSelect() + renderPermissions().
 async function loadSettings() {
   const payload = await request('/settings');
   state.settings = payload;
-  fillTierSelects();
-  renderTierColumns();
+  populateInviteTierSelect();
+  renderPermissions();
   document.getElementById('defaults-expiration').value = payload.defaults?.expiration || '7d';
   document.getElementById('defaults-max-calls').value = payload.defaults?.maxCalls || 100;
 }
@@ -2117,7 +2232,9 @@ const tabLoaders = {
   contacts: loadContacts,
   calls: loadCalls,
   logs: () => { loadLogs(); loadLogStats(); },
-  permissions: () => {},
+  // A2A-48: Load fresh settings data when switching to Permissions tab.
+  // Previously a no-op — now ensures data is current on tab switch.
+  permissions: loadSettings,
   invites: loadInvites,
   health: loadHealth,
 };
@@ -2241,8 +2358,10 @@ function renderHealthHistory(history) {
 async function bootstrap() {
   bindTabs();
   bindContactsActions();
-  bindSettingsActions();
-  bindItemListDelegation();
+  // A2A-48: bindPermissionsActions() replaces old bindSettingsActions() +
+  // bindItemListDelegation(). All tier/tool/topic/goal handlers are now
+  // inside bindPermissionsActions() using event delegation on #panel-permissions.
+  bindPermissionsActions();
   bindCallbookActions();
   bindAutoUpdateActions();
   bindInviteActions();

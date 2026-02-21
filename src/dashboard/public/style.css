@@ -423,62 +423,568 @@ tr[data-selected="1"] td {
   color: var(--accent);
 }
 
-/* ── A2A-41: Tools checklist ───────────────────────────────── */
-.tools-checklist {
+/* ── A2A-48: Permissions tab layout ────────────────────────── */
+/* A2A-48: flex row for main content + right sidebar. The sidebar is fixed
+   width and hidden on narrow viewports to keep the main area usable. */
+.perm-layout {
+  display: flex;
+  gap: 1.5rem;
+}
+
+.perm-main {
+  flex: 1;
+  min-width: 0;
+  overflow-y: auto;
+  max-width: 900px;
+}
+
+.perm-sidebar {
+  width: 280px;
+  flex-shrink: 0;
+  overflow-y: auto;
+  max-height: calc(100vh - 120px);
+}
+
+.perm-section {
+  margin-bottom: 1.5rem;
+}
+
+.perm-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.6rem;
+}
+
+.perm-section-header h2 {
+  margin: 0;
+}
+
+.perm-hint {
+  font-size: 0.78rem;
+  color: var(--ink-muted);
+  font-style: italic;
+}
+
+.perm-add-btn {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  background: none;
+  border: none;
+  color: var(--accent);
+  font-size: 0.85rem;
+  font-weight: 500;
+  cursor: pointer;
+  padding: 0.3rem 0.5rem;
+  border-radius: 6px;
+  transition: background 0.15s ease;
+}
+
+.perm-add-btn:hover {
+  background: rgba(59, 130, 246, 0.1);
+}
+
+/* ── A2A-48: Tier cards grid ──────────────────────────────── */
+.tier-cards-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 0.75rem;
+}
+
+.tier-card {
+  position: relative;
+  background: rgba(30, 39, 56, 0.5);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  padding: 1rem;
   display: flex;
   flex-direction: column;
-  gap: 0.35rem;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  height: 96px;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
 }
 
-.tools-checklist sl-checkbox {
-  margin-bottom: 0;
+.tier-card:hover {
+  background: rgba(30, 39, 56, 0.8);
+  border-color: rgba(255, 255, 255, 0.18);
 }
 
-.tools-checklist sl-checkbox::part(label) {
-  font-size: 0.88rem;
+/* A2A-48: Active tier card gets a gradient glow border via pseudo-element
+   with blur, matching the concept mock's neon glow effect. */
+.tier-card.active {
+  border-color: rgba(59, 130, 246, 0.5);
+  box-shadow: 0 0 12px rgba(59, 130, 246, 0.25), 0 0 4px rgba(59, 130, 246, 0.15);
 }
 
-.tool-desc {
-  color: var(--ink-muted);
-  font-weight: normal;
+.tier-card.active::before {
+  content: '';
+  position: absolute;
+  inset: -2px;
+  border-radius: 14px;
+  background: linear-gradient(135deg, #3B82F6, #06B6D4);
+  opacity: 0.5;
+  filter: blur(6px);
+  z-index: -1;
 }
 
-/* ── A2A-41: Three-column tier layout — dark theme ─────────── */
-.tier-columns {
+.tier-card .status-dot {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+}
+
+.tier-card-icon {
+  font-size: 1.5rem;
+}
+
+.tier-card-name {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+/* ── A2A-48: Toggle switch cards (replacing checkboxes) ────── */
+.tool-toggles-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr 1fr;
-  gap: 0.8rem;
-  margin-bottom: 1.2rem;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 0.75rem;
 }
 
-/* A2A-47: Dark tier column replacing light #fbfdff */
-.tier-column {
-  border: 1px solid var(--line);
+.toggle-switch {
+  position: relative;
+  display: inline-block;
+  width: 44px;
+  height: 24px;
+  flex-shrink: 0;
+}
+
+.toggle-switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.toggle-switch .slider {
+  position: absolute;
+  cursor: pointer;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: #374151;
+  transition: 0.3s;
+  border-radius: 24px;
+}
+
+.toggle-switch .slider:before {
+  position: absolute;
+  content: "";
+  height: 18px;
+  width: 18px;
+  left: 3px;
+  bottom: 3px;
+  background-color: white;
+  transition: 0.3s;
+  border-radius: 50%;
+}
+
+.toggle-switch input:checked + .slider {
+  background-color: #3B82F6;
+  box-shadow: 0 0 10px rgba(59, 130, 246, 0.5);
+}
+
+.toggle-switch input:checked + .slider:before {
+  transform: translateX(20px);
+}
+
+.tool-toggle-card {
+  background: rgba(30, 41, 59, 0.4);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  padding: 1rem 1.2rem;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.tool-toggle-card:hover {
+  background: rgba(30, 41, 59, 0.6);
+}
+
+/* A2A-48: Enabled tool card gets subtle blue border glow to match concept mock */
+.tool-toggle-card.enabled {
+  border-color: rgba(59, 130, 246, 0.3);
+  box-shadow: 0 0 15px rgba(59, 130, 246, 0.1);
+}
+
+.tool-toggle-info {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+}
+
+.tool-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  font-size: 1.3rem;
+}
+
+.tool-toggle-card h3 {
+  margin: 0;
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: var(--ink);
+}
+
+.tool-toggle-card p {
+  margin: 0.2rem 0 0;
+  font-size: 0.78rem;
+  color: var(--ink-muted);
+  max-width: 220px;
+}
+
+/* ── A2A-48: Configuration zones (topics + goals) ─────────── */
+.config-columns {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+}
+
+.config-col {
+  display: flex;
+  flex-direction: column;
+}
+
+.config-col-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 0.5rem;
+  padding: 0 0.25rem;
+}
+
+.config-col-header--teal {
+  color: #2DD4BF;
+}
+
+.config-col-header--yellow {
+  color: #FBBF24;
+}
+
+.status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.status-dot--teal {
+  background: #2DD4BF;
+  box-shadow: 0 0 8px rgba(45, 212, 191, 0.8);
+}
+
+.status-dot--yellow {
+  background: #FBBF24;
+  box-shadow: 0 0 8px rgba(250, 204, 21, 0.8);
+}
+
+.status-dot--green {
+  background: #10B981;
+  box-shadow: 0 0 8px rgba(16, 185, 129, 0.8);
+}
+
+.count-badge {
+  font-size: 0.65rem;
+  padding: 0.1rem 0.4rem;
+  border-radius: 4px;
+  margin-left: auto;
+}
+
+.count-badge--teal {
+  background: rgba(45, 212, 191, 0.1);
+  color: #5EEAD4;
+  border: 1px solid rgba(45, 212, 191, 0.2);
+}
+
+.count-badge--yellow {
+  background: rgba(250, 204, 21, 0.1);
+  color: #FDE68A;
+  border: 1px solid rgba(250, 204, 21, 0.2);
+}
+
+/* A2A-48: Drop zone uses dashed SVG border matching the concept mock.
+   The SVG stroke approach avoids needing a separate border-image. */
+.perm-drop-zone {
+  min-height: 140px;
+  border-radius: 12px;
+  padding: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  background: rgba(30, 39, 56, 0.3);
+  background-image: url("data:image/svg+xml,%3csvg width='100%25' height='100%25' xmlns='http://www.w3.org/2000/svg'%3e%3crect width='100%25' height='100%25' fill='none' rx='12' ry='12' stroke='%233B82F640' stroke-width='2' stroke-dasharray='8%2c 8' stroke-dashoffset='0' stroke-linecap='square'/%3e%3c/svg%3e");
+  transition: background-color 0.2s ease;
+}
+
+.perm-drop-zone.drag-over {
+  background-color: rgba(59, 130, 246, 0.08);
+  background-image: url("data:image/svg+xml,%3csvg width='100%25' height='100%25' xmlns='http://www.w3.org/2000/svg'%3e%3crect width='100%25' height='100%25' fill='none' rx='12' ry='12' stroke='%233B82F6' stroke-width='2' stroke-dasharray='8%2c 8' stroke-dashoffset='0' stroke-linecap='square'/%3e%3c/svg%3e");
+}
+
+.active-item-card {
+  position: relative;
+  background: var(--card-bg);
+  border-radius: 8px;
+  padding: 0.6rem 2.2rem 0.6rem 0.75rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  transition: background 0.15s ease;
+}
+
+.active-item-card:hover {
+  background: rgba(37, 47, 66, 1);
+}
+
+/* A2A-48: Teal accent for topic cards with glow shadow */
+.active-item-card--teal {
+  border: 1px solid rgba(45, 212, 191, 0.5);
+  box-shadow: 0 0 12px rgba(45, 212, 191, 0.15);
+}
+
+/* A2A-48: Yellow accent for goal cards with glow shadow */
+.active-item-card--yellow {
+  border: 1px solid rgba(234, 179, 8, 0.5);
+  box-shadow: 0 0 12px rgba(234, 179, 8, 0.15);
+}
+
+.active-item-card .item-name {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.active-item-card .item-type-label {
+  font-size: 0.6rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.active-item-card--teal .item-type-label {
+  color: #2DD4BF;
+}
+
+.active-item-card--yellow .item-type-label {
+  color: #FBBF24;
+}
+
+.active-item-card .item-close-btn {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  background: none;
+  border: none;
+  color: var(--ink-muted);
+  cursor: pointer;
+  padding: 2px;
+  border-radius: 50%;
+  line-height: 1;
+  transition: color 0.15s ease, background 0.15s ease;
+}
+
+.active-item-card .item-close-btn:hover {
+  color: #f87171;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.drop-placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px dashed rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  padding: 0.75rem;
+  margin-top: auto;
+  flex: 1;
+  min-height: 40px;
+}
+
+.drop-placeholder span {
+  font-size: 0.75rem;
+  color: rgba(255, 255, 255, 0.2);
+  font-weight: 500;
+}
+
+/* ── A2A-48: Right sidebar ────────────────────────────────── */
+.preview-card {
+  background: linear-gradient(135deg, #1E293B, #0F172A);
+  border-radius: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  padding: 1.2rem;
+  position: relative;
+  overflow: hidden;
+  margin-bottom: 1.2rem;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+}
+
+/* A2A-48: decorative gradient orbs inside the preview card */
+.preview-card::before {
+  content: '';
+  position: absolute;
+  top: -30px;
+  right: -30px;
+  width: 80px;
+  height: 80px;
+  background: rgba(59, 130, 246, 0.15);
+  border-radius: 50%;
+  filter: blur(20px);
+  pointer-events: none;
+}
+
+.preview-card::after {
+  content: '';
+  position: absolute;
+  bottom: -20px;
+  left: -20px;
+  width: 60px;
+  height: 60px;
+  background: rgba(139, 92, 246, 0.15);
+  border-radius: 50%;
+  filter: blur(20px);
+  pointer-events: none;
+}
+
+.preview-card-inner {
+  position: relative;
+  z-index: 1;
+}
+
+.preview-tier-badge {
+  display: inline-block;
+  font-size: 0.65rem;
+  padding: 0.15rem 0.5rem;
+  border-radius: 999px;
+  background: rgba(59, 130, 246, 0.1);
+  color: #60A5FA;
+  border: 1px solid rgba(59, 130, 246, 0.2);
+  margin-top: 0.3rem;
+}
+
+.preview-summary {
+  font-size: 0.82rem;
+  color: var(--ink-muted);
+  line-height: 1.5;
+  background: rgba(0, 0, 0, 0.2);
   border-radius: 8px;
   padding: 0.6rem;
-  background: var(--card-bg);
-  min-height: 120px;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  margin-top: 0.75rem;
 }
 
-.tier-column h4 {
-  margin: 0 0 0.5rem;
-  font-size: 0.9rem;
+.preview-summary strong {
   color: var(--ink);
-  padding-bottom: 0.4rem;
-  border-bottom: 1px solid var(--line);
 }
 
-.tier-drop-zone {
-  min-height: 60px;
-  transition: background 0.15s ease;
-  border-radius: 4px;
-  padding: 0.2rem;
+.preview-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 0.72rem;
+  color: var(--ink-muted);
+  padding-top: 0.5rem;
+  margin-top: 0.75rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
 }
 
-.tier-drop-zone.drag-over {
-  background: rgba(59, 130, 246, 0.1);
-  outline: 2px dashed var(--accent);
-  outline-offset: -2px;
+.sidebar-list {
+  margin-bottom: 1rem;
+}
+
+.sidebar-list-header {
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--ink-muted);
+  margin-bottom: 0.5rem;
+}
+
+.sidebar-item {
+  background: rgba(30, 39, 56, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  padding: 0.5rem 0.6rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.4rem;
+  cursor: grab;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.sidebar-item:hover {
+  background: var(--card-bg);
+  border-color: rgba(255, 255, 255, 0.18);
+}
+
+/* A2A-48: Active items in the sidebar are dimmed with dashed border and
+   non-draggable to indicate they are already in the active zone. */
+.sidebar-item.active-in-zone {
+  opacity: 0.5;
+  border-style: dashed;
+  cursor: default;
+  font-style: italic;
+}
+
+.sidebar-item .sidebar-item-name {
+  font-size: 0.82rem;
+  font-weight: 500;
+  color: var(--ink-muted);
+}
+
+.sidebar-item .sidebar-item-active-label {
+  font-size: 0.7rem;
+  color: var(--ink-muted);
+  font-style: italic;
+}
+
+.sidebar-add-btn {
+  width: 100%;
+  margin-top: 0.4rem;
+  padding: 0.45rem;
+  border: 1px dashed rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--ink-muted);
+  font-size: 0.78rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.3rem;
+  transition: color 0.15s ease, border-color 0.15s ease;
+}
+
+.sidebar-add-btn:hover {
+  color: var(--accent);
+  border-color: rgba(59, 130, 246, 0.4);
 }
 
 /* ── A2A-41: Validation warnings — adjusted for dark theme ── */
@@ -541,6 +1047,20 @@ tr[data-selected="1"] td {
   color: var(--ink);
 }
 
+/* ── A2A-48: Hide permissions sidebar below 1280px ─────────── */
+@media (max-width: 1280px) {
+  .perm-sidebar {
+    display: none;
+  }
+}
+
+/* A2A-48: Stack config columns on narrow screens */
+@media (max-width: 900px) {
+  .config-columns {
+    grid-template-columns: 1fr;
+  }
+}
+
 /* ── A2A-47: Responsive — sidebar collapses at 1024px ──────── */
 @media (max-width: 1024px) {
   .sidebar {
@@ -566,10 +1086,5 @@ tr[data-selected="1"] td {
 
   .main-content {
     margin-left: 80px;
-  }
-
-  /* A2A-41: collapse three-column layout to single column on narrow screens */
-  .tier-columns {
-    grid-template-columns: 1fr;
   }
 }
