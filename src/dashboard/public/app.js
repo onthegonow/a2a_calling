@@ -15,7 +15,9 @@ const state = {
   realtime: {
     connected: false,
     lastEventId: null
-  }
+  },
+  // A2A-47: Track active panel for sidebar navigation (replaces sl-tab-group)
+  activeTab: 'contacts'
 };
 
 let dashboardEventSource = null;
@@ -249,37 +251,77 @@ async function copyText(value) {
   }
 }
 
-function bindTabs() {
-  const tabGroup = document.getElementById('main-tabs');
-  if (!tabGroup) return;
+// A2A-47: Panel name → section title mapping for the content header
+const panelTitles = {
+  contacts: 'Contacts',
+  calls: 'Calls',
+  permissions: 'Permissions',
+  invites: 'Invites',
+  logs: 'Logs',
+  health: 'Health'
+};
 
-  tabGroup.addEventListener('sl-tab-show', (e) => {
-    const tabName = e.detail.name;
-    try { window.location.hash = tabName; } catch (err) {}
-    if (typeof onTabSwitch === 'function') onTabSwitch(tabName);
+// A2A-47: Show a specific panel and update sidebar + header state.
+// Replaces the old sl-tab-group navigation.
+function showPanel(name) {
+  const validPanels = Object.keys(panelTitles);
+  if (!validPanels.includes(name)) name = 'contacts';
+
+  // Hide all panels, show the target
+  document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+  const target = document.getElementById('panel-' + name);
+  if (target) target.classList.add('active');
+
+  // Update sidebar active state
+  document.querySelectorAll('.nav-item').forEach(item => {
+    if (item.dataset.panel === name) {
+      item.classList.add('active');
+    } else {
+      item.classList.remove('active');
+    }
   });
 
-  // Deep-link support: activate the tab matching the URL hash
+  // Update header title
+  const titleEl = document.getElementById('section-title');
+  if (titleEl) titleEl.textContent = panelTitles[name] || name;
+
+  // Update state and hash
+  state.activeTab = name;
+  try {
+    if (window.location.hash.slice(1) !== name) {
+      window.location.hash = name;
+    }
+  } catch (err) {}
+
+  // Trigger data loading for the active tab
+  if (typeof onTabSwitch === 'function') onTabSwitch(name);
+}
+
+function bindTabs() {
+  // A2A-47: Sidebar nav click handler
+  document.querySelectorAll('.nav-item').forEach(item => {
+    item.addEventListener('click', (e) => {
+      e.preventDefault();
+      const panel = item.dataset.panel;
+      if (panel) showPanel(panel);
+    });
+  });
+
+  // Deep-link support: activate the panel matching the URL hash
   const activateFromHash = () => {
     let hash = window.location.hash.slice(1);
     // A2A-41: backward-compat alias — old bookmarks/links using #settings
     // still work after rename to #permissions
     if (hash === 'settings') hash = 'permissions';
     if (hash) {
-      // Use try/catch in case the tab group isn't fully ready
-      try { tabGroup.show(hash); } catch (err) {}
+      showPanel(hash);
     }
   };
 
   window.addEventListener('hashchange', activateFromHash);
 
-  // On initial load, activate from hash (wait for Shoelace to be ready)
-  if (tabGroup.updateComplete) {
-    tabGroup.updateComplete.then(activateFromHash);
-  } else {
-    // Fallback: try after a short delay
-    setTimeout(activateFromHash, 100);
-  }
+  // On initial load, activate from hash
+  activateFromHash();
 }
 
 function norm(value) {
@@ -562,8 +604,8 @@ function bindContactsActions() {
     }
   });
 
-  // Event delegation on the contacts tab panel
-  const panel = document.querySelector('sl-tab-panel[name="contacts"]');
+  // A2A-47: Event delegation on the contacts panel (was sl-tab-panel, now div#panel-contacts)
+  const panel = document.querySelector('#panel-contacts');
   panel?.addEventListener('click', async (e) => {
     const pinBtn = e.target.closest('[data-pin-contact]');
     if (pinBtn) {
@@ -2066,12 +2108,9 @@ function bindLogFilterRefresh() {
 
 let pollTimer = null;
 
+// A2A-47: Simply return tracked state instead of querying sl-tab-group
 function getActiveTab() {
-  const tabGroup = document.getElementById('main-tabs');
-  if (!tabGroup) return 'contacts';
-  // Shoelace tab group: find the active tab by checking which tab has the active attribute
-  const activeTab = tabGroup.querySelector('sl-tab[active]');
-  return activeTab ? activeTab.getAttribute('panel') : 'contacts';
+  return state.activeTab || 'contacts';
 }
 
 const tabLoaders = {
