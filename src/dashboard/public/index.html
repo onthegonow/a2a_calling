@@ -1,31 +1,65 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" class="sl-theme-dark">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>A2A Dashboard</title>
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@shoelace-style/shoelace@2.19/cdn/themes/light.css" />
+  <title>A2A Callbook</title>
+  <!-- A2A-47: Switch to Shoelace dark theme to match dark sidebar design -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@shoelace-style/shoelace@2.19/cdn/themes/dark.css" />
   <script type="module" src="https://cdn.jsdelivr.net/npm/@shoelace-style/shoelace@2.19/cdn/shoelace-autoloader.js"></script>
+  <!-- A2A-47: Material Symbols for sidebar nav icons -->
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" />
+  <!-- A2A-47: Inter font for modern UI typography -->
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" />
   <link rel="stylesheet" href="./style.css">
 </head>
-<body>
-  <header>
-    <h1>A2A Dashboard</h1>
-    <p>Contacts, calls, settings, and invites.</p>
-  </header>
+<body class="sl-theme-dark">
+  <!-- A2A-47: Fixed left sidebar navigation replacing sl-tab-group horizontal tabs -->
+  <aside class="sidebar">
+    <div class="sidebar-brand">
+      <span class="material-symbols-outlined brand-icon">phone_in_talk</span>
+      <span class="brand-text">A2A Callbook</span>
+    </div>
+    <nav class="sidebar-nav">
+      <a data-panel="contacts" class="nav-item active">
+        <span class="material-symbols-outlined nav-icon" style="color:#10B981;">contacts</span>
+        <span class="nav-label">Contacts</span>
+      </a>
+      <a data-panel="calls" class="nav-item">
+        <span class="material-symbols-outlined nav-icon" style="color:#3B82F6;">call</span>
+        <span class="nav-label">Calls</span>
+      </a>
+      <a data-panel="permissions" class="nav-item">
+        <span class="material-symbols-outlined nav-icon" style="color:#8B5CF6;">verified_user</span>
+        <span class="nav-label">Permissions</span>
+      </a>
+      <a data-panel="invites" class="nav-item">
+        <span class="material-symbols-outlined nav-icon" style="color:#F59E0B;">mail</span>
+        <span class="nav-label">Invites</span>
+      </a>
+      <a data-panel="logs" class="nav-item">
+        <span class="material-symbols-outlined nav-icon" style="color:#14B8A6;">history</span>
+        <span class="nav-label">Logs</span>
+      </a>
+      <a data-panel="health" class="nav-item">
+        <span class="material-symbols-outlined nav-icon" style="color:#EF4444;">monitor_heart</span>
+        <span class="nav-label">Health</span>
+      </a>
+    </nav>
+  </aside>
 
-  <main>
-    <sl-tab-group id="main-tabs">
-      <sl-tab slot="nav" panel="contacts" active>Contacts</sl-tab>
-      <sl-tab slot="nav" panel="calls">Calls</sl-tab>
-      <sl-tab slot="nav" panel="permissions">Permissions</sl-tab>
-      <sl-tab slot="nav" panel="invites">Invites</sl-tab>
-      <sl-tab slot="nav" panel="logs">Logs</sl-tab>
-      <sl-tab slot="nav" panel="health">Health</sl-tab>
+  <main class="main-content">
+    <!-- A2A-47: Decorative background orbs for depth -->
+    <div class="bg-orb bg-orb-blue"></div>
+    <div class="bg-orb bg-orb-purple"></div>
 
-      <sl-tab-panel name="contacts">
-        <h2>Contacts</h2>
+    <header class="content-header">
+      <h1 id="section-title">Contacts</h1>
+    </header>
 
+    <div class="content-body">
+      <!-- A2A-47: Panel-based layout; only one panel visible at a time -->
+      <div id="panel-contacts" class="panel active">
         <sl-details id="add-contact-details" summary="+ Add Contact">
           <form id="add-contact-form">
             <sl-input id="add-contact-url" label="Invite URL" placeholder="a2a://host/token" required></sl-input>
@@ -45,10 +79,9 @@
 
         <div id="contacts-sections"></div>
         <sl-card id="contact-detail"></sl-card>
-      </sl-tab-panel>
+      </div>
 
-      <sl-tab-panel name="calls">
-        <h2>Calls</h2>
+      <div id="panel-calls" class="panel">
         <table id="calls-table">
           <thead>
             <tr>
@@ -63,15 +96,14 @@
           <tbody></tbody>
         </table>
         <div id="call-detail"></div>
-      </sl-tab-panel>
+      </div>
 
-      <sl-tab-panel name="permissions">
-        <h2>Permission Tiers</h2>
+      <div id="panel-permissions" class="panel">
         <div class="row">
           <label for="tier-select">Tier</label>
           <sl-select id="tier-select" size="small" style="min-width:200px;"></sl-select>
           <sl-button id="new-tier-btn" size="small">New Tier</sl-button>
-          <sl-button id="preview-caller-btn" size="small" variant="neutral">&NewLine;&#x1F441; Preview as Caller</sl-button>
+          <sl-button id="preview-caller-btn" size="small" variant="neutral">&#x1F441; Preview as Caller</sl-button>
         </div>
 
         <div id="tier-warnings" class="tier-warnings"></div>
@@ -171,9 +203,9 @@
           <div id="preview-content"></div>
           <sl-button slot="footer" variant="primary" id="preview-close-btn">Close</sl-button>
         </sl-dialog>
-      </sl-tab-panel>
+      </div>
 
-      <sl-tab-panel name="invites">
+      <div id="panel-invites" class="panel">
         <sl-details id="generate-invite-details" summary="+ Generate Invite">
           <form id="invite-form">
             <sl-input id="invite-name" label="Name" required></sl-input>
@@ -209,11 +241,9 @@
           </thead>
           <tbody></tbody>
         </table>
-      </sl-tab-panel>
+      </div>
 
-      <sl-tab-panel name="logs">
-        <h2>Logs</h2>
-
+      <div id="panel-logs" class="panel">
         <div class="filters">
           <label>Level
             <sl-select id="logs-level" size="small" clearable>
@@ -254,10 +284,9 @@
         </table>
 
         <sl-card id="trace-detail"></sl-card>
-      </sl-tab-panel>
+      </div>
 
-      <sl-tab-panel name="health">
-        <h2>E2E Health</h2>
+      <div id="panel-health" class="panel">
         <sl-card id="health-latest">
           <p>No test results available. Run <code>node test/e2e/orchestrate.js --persist</code> to generate results.</p>
         </sl-card>
@@ -275,11 +304,11 @@
           </thead>
           <tbody></tbody>
         </table>
-      </sl-tab-panel>
-    </sl-tab-group>
-
-    <div id="notice"></div>
+      </div>
+    </div>
   </main>
+
+  <div id="notice"></div>
 
   <script src="./app.js"></script>
 </body>
