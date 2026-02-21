@@ -1060,6 +1060,63 @@ table tbody tr:hover td {
   color: var(--ink);
 }
 
+/* A2A-49: Contact status colored badges */
+.contact-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.82rem;
+}
+
+.contact-status::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.contact-status[data-status="online"]::before {
+  background: #10B981;
+  box-shadow: 0 0 6px rgba(16, 185, 129, 0.6);
+}
+
+.contact-status[data-status="offline"]::before {
+  background: #EF4444;
+  box-shadow: 0 0 6px rgba(239, 68, 68, 0.4);
+}
+
+.contact-status[data-status="unknown"]::before {
+  background: #6B7280;
+}
+
+/* A2A-49: Log level color coding */
+.log-level {
+  font-size: 0.78rem;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.log-level[data-level="error"] {
+  color: #F87171;
+}
+
+.log-level[data-level="warn"] {
+  color: #FBBF24;
+}
+
+.log-level[data-level="info"] {
+  color: #60A5FA;
+}
+
+.log-level[data-level="debug"] {
+  color: #A78BFA;
+}
+
+.log-level[data-level="trace"] {
+  color: #6B7280;
+}
+
 /* ── A2A-48: Hide permissions sidebar below 1280px ─────────── */
 @media (max-width: 1280px) {
   .perm-sidebar {
