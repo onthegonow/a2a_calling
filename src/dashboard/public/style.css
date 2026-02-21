@@ -1154,6 +1154,46 @@ sl-details::part(base) {
   border-color: var(--line);
 }
 
+/* A2A-49: Health card gets glass-panel treatment via CSS (not index.html).
+   The acceptance criterion requires glass-panel styling on #health-latest.
+   We target the sl-card shadow DOM part directly. */
+#health-latest::part(base) {
+  background: rgba(30, 41, 59, 0.4);
+  backdrop-filter: blur(12px);
+  border-color: rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+}
+
+/* A2A-49: Health tab — step icons and status reinforcement.
+   Shoelace badge variants (success/danger/warning) already provide
+   green/red/yellow colors in dark theme — no override needed. */
+#health-latest details ul {
+  list-style: none;
+  padding-left: 0;
+}
+
+#health-latest details li {
+  padding: 0.3rem 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+  font-size: 0.85rem;
+}
+
+#health-latest details li:last-child {
+  border-bottom: none;
+}
+
+/* A2A-49: Native <details> dark styling inside health cards */
+#health-latest details > summary {
+  cursor: pointer;
+  color: var(--ink-muted);
+  font-size: 0.85rem;
+  padding: 0.3rem 0;
+}
+
+#health-latest details > summary:hover {
+  color: var(--ink);
+}
+
 /* ── A2A-48: Hide permissions sidebar below 1280px ─────────── */
 @media (max-width: 1280px) {
   .perm-sidebar {
