@@ -289,9 +289,22 @@ tr[data-selected="1"] td {
   cursor: default;
 }
 
-/* A2A-47: Dark hover for log rows replacing light #f6fbff */
-#logs-table tr:hover td {
+/* A2A-49: Universal dark table row hover for all tabs.
+   Uses 0.04 to match the existing logs hover opacity from A2A-47. */
+table tbody tr:hover td {
   background: rgba(255, 255, 255, 0.04);
+}
+
+/* A2A-49: Contacts rows use buttons inside cells (not full-row click),
+   so they don't get cursor:pointer — only calls rows do. */
+
+/* A2A-49: Clickable table rows get pointer cursor */
+#calls-table tbody tr {
+  cursor: pointer;
+}
+
+#calls-table tbody tr:hover td {
+  background: rgba(59, 130, 246, 0.08);
 }
 
 /* A2A-47: Dark notice styling replacing light blue colors */
