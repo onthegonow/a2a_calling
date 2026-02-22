@@ -63,6 +63,9 @@ All modules use CommonJS (`require`/`module.exports`). Each lib file exports a f
 - Uses Shoelace web components (`<sl-*>` elements)
 - Communicates via fetch to `/dashboard/api/*` endpoints
 - SSE for real-time updates via `src/lib/dashboard-events.js`
+- Dark theme is the default; uses CSS custom properties for theming
+- Sidebar navigation with tab switching (Contacts, Calls, Invites, Logs, Settings, Permissions, Health)
+- Permissions tab uses tier cards with tool toggles and auto-save
 
 ## Permission Tiers
 
