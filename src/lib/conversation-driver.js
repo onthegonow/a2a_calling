@@ -147,7 +147,13 @@ class ConversationDriver {
     const clientTimeout = this.claudeMode
       ? Math.max(this.claudeTimeoutMs + 20000, 200000)
       : 65000;
-    this.client = new A2AClient({ caller: this.caller, timeout: clientTimeout });
+    // A2A-52: pass Ed25519 keypair for request signing
+    this.client = new A2AClient({
+      caller: this.caller,
+      timeout: clientTimeout,
+      privateKey: options.privateKey || null,
+      publicKey: options.publicKey || null
+    });
   }
 
   /**

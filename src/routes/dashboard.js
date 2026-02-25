@@ -1331,7 +1331,7 @@ function createDashboardApiRouter(options = {}) {
       success: true,
       onboarding_complete: context.config.isOnboarded(),
       defaults: cfg.defaults || {},
-      agent: cfg.agent || {},
+      agent: (() => { const { private_key, ...pub } = cfg.agent || {}; return pub; })(),
       tiers,
       manifest: {
         never_disclose: manifest.never_disclose || [],

@@ -230,10 +230,13 @@ const DEFAULT_CONFIG = {
   },
   
   // Agent info
+  // A2A-52: private_key/public_key store Ed25519 identity (base64 DER)
   agent: {
     name: '',
     description: '',
-    hostname: ''
+    hostname: '',
+    private_key: null,
+    public_key: null
   },
 
   // Auto-updater
@@ -386,6 +389,21 @@ class A2AConfig {
     this._save();
   }
 
+  // A2A-52: Get Ed25519 keypair from agent config (null if not generated)
+  getKeypair() {
+    const agent = this.config.agent || {};
+    if (!agent.private_key || !agent.public_key) return null;
+    return { privateKey: agent.private_key, publicKey: agent.public_key };
+  }
+
+  // A2A-52: Store Ed25519 keypair in agent config (already 0o600 via _save)
+  setKeypair(privateKey, publicKey) {
+    this.config.agent = this.config.agent || {};
+    this.config.agent.private_key = privateKey;
+    this.config.agent.public_key = publicKey;
+    this._save();
+  }
+
   // Get full config
   getAll() {
     return this.config;
@@ -424,12 +442,13 @@ class A2AConfig {
     return next;
   }
 
-  // Export for sharing
+  // Export for sharing (strips private_key to prevent leakage — A2A-52)
   export() {
+    const { private_key, ...agentPublic } = this.config.agent || {};
     return {
       tiers: this.config.tiers,
       defaults: this.config.defaults,
-      agent: this.config.agent
+      agent: agentPublic
     };
   }
 }

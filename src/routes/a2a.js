@@ -11,6 +11,7 @@
 const { TokenStore } = require('../lib/tokens');
 const crypto = require('crypto');
 const { createLogger, createTraceId } = require('../lib/logger');
+const { verifySignature, isTimestampValid, fingerprint } = require('../lib/crypto');
 
 // Lazy-load conversation store (optional dependency)
 let ConversationStore = null;
@@ -187,19 +188,75 @@ function createRoutes(options = {}) {
     } catch (_) {}
   }
 
+  // A2A-52: shared signature verification helper for /invoke and /end
+  function verifySigHeaders(req, validation, endpoint, reqLogger, withTracePayload) {
+    const sigHeader = req.headers['x-a2a-signature'];
+    const pubKeyHeader = req.headers['x-a2a-public-key'];
+    const tsHeader = req.headers['x-a2a-timestamp'];
+    const result = { identityVerified: false, publicKeyFingerprint: null, error: null };
+
+    if (!sigHeader || !pubKeyHeader || !tsHeader) return result;
+
+    if (!isTimestampValid(tsHeader)) {
+      result.error = { status: 403, body: { success: false, error: 'timestamp_expired', message: 'Request timestamp outside allowed window' } };
+      reqLogger.warn('Signature timestamp outside window', { tokenId: validation.id, error_code: 'SIGNATURE_TIMESTAMP_EXPIRED', status_code: 403 });
+      return result;
+    }
+
+    try {
+      crypto.createPublicKey({ key: Buffer.from(pubKeyHeader, 'base64'), format: 'der', type: 'spki' });
+    } catch (_) {
+      result.error = { status: 400, body: { success: false, error: 'malformed_public_key', message: 'X-A2A-Public-Key is not a valid Ed25519 public key' } };
+      reqLogger.warn('Malformed public key', { tokenId: validation.id, error_code: 'MALFORMED_PUBLIC_KEY', status_code: 400 });
+      return result;
+    }
+
+    const existingContact = tokenStore.getContact(validation.id) ||
+      (tokenStore.listContacts().find(c => c.linked_token_id === validation.id));
+    if (existingContact && existingContact.public_key && existingContact.public_key !== pubKeyHeader) {
+      result.error = { status: 403, body: { success: false, error: 'public_key_mismatch', message: 'Public key does not match previously pinned key' } };
+      reqLogger.warn('Public key mismatch (TOFU violation)', { tokenId: validation.id, error_code: 'PUBLIC_KEY_MISMATCH', status_code: 403 });
+      return result;
+    }
+
+    const rawBody = JSON.stringify(req.body);
+    try {
+      const valid = verifySignature({ signature: sigHeader, publicKey: pubKeyHeader, timestamp: tsHeader, method: 'POST', endpoint, body: rawBody });
+      if (valid) {
+        result.identityVerified = true;
+        result.publicKeyFingerprint = fingerprint(pubKeyHeader);
+        if (existingContact && !existingContact.public_key) {
+          tokenStore.updateContact(existingContact.name || existingContact.id, { public_key: pubKeyHeader });
+        }
+      } else {
+        result.error = { status: 403, body: { success: false, error: 'invalid_signature', message: 'Ed25519 signature verification failed' } };
+        reqLogger.warn('Signature verification failed', { tokenId: validation.id, error_code: 'SIGNATURE_INVALID', status_code: 403 });
+      }
+    } catch (sigErr) {
+      result.error = { status: 403, body: { success: false, error: 'invalid_signature', message: 'Signature verification failed' } };
+      reqLogger.warn('Signature verification error', { tokenId: validation.id, error_code: 'SIGNATURE_VERIFY_ERROR', status_code: 403, error: sigErr });
+    }
+    return result;
+  }
+
   /**
    * GET /status
    * Check if A2A is enabled
    */
   router.get('/status', (req, res) => {
     const activeCalls = monitor ? monitor.getActiveCount() : 0;
-    res.json({
+    const response = {
       a2a: true,
       version: require('../../package.json').version,
       capabilities: ['invoke', 'multi-turn'],
       rate_limits: limits,
       active_calls: activeCalls
-    });
+    };
+    // A2A-52: include agent public key so contacts can fetch it
+    if (options.publicKey) {
+      response.public_key = options.publicKey;
+    }
+    res.json(response);
   });
 
   /**
@@ -291,6 +348,14 @@ function createRoutes(options = {}) {
       }));
     }
 
+    // A2A-52: Ed25519 signature verification (after token auth, before message handling)
+    const sigCheck = verifySigHeaders(req, validation, '/api/a2a/invoke', reqLogger, withTracePayload);
+    if (sigCheck.error) {
+      return res.status(sigCheck.error.status).json(withTracePayload(sigCheck.error.body));
+    }
+    const identityVerified = sigCheck.identityVerified;
+    const publicKeyFingerprint = sigCheck.publicKeyFingerprint;
+
     // Extract and validate request
     const { message, conversation_id, caller, context, timeout_seconds = 60 } = req.body;
 
@@ -353,7 +418,10 @@ function createRoutes(options = {}) {
       caller: sanitizedCaller,
       conversation_id: conversation_id || `conv_${Date.now()}_${crypto.randomBytes(6).toString('hex')}`,
       trace_id: traceId,
-      request_id: requestId
+      request_id: requestId,
+      // A2A-52: cryptographic identity verification status
+      identity_verified: identityVerified,
+      public_key_fingerprint: publicKeyFingerprint
     };
 
     // Ensure inbound caller exists as a contact (best-effort).
@@ -568,8 +636,14 @@ function createRoutes(options = {}) {
       return res.status(401).json(withTracePayload({ 
         success: false, 
         error: 'unauthorized', 
-        message: 'Invalid or expired token' 
+        message: 'Invalid or expired token'
       }));
+    }
+
+    // A2A-52: Ed25519 signature verification for /end (same as /invoke)
+    const endSigCheck = verifySigHeaders(req, validation, '/api/a2a/end', reqLogger, withTracePayload);
+    if (endSigCheck.error) {
+      return res.status(endSigCheck.error.status).json(withTracePayload(endSigCheck.error.body));
     }
 
     const { conversation_id } = req.body;

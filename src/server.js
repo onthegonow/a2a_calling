@@ -901,9 +901,12 @@ app.use('/dashboard', createDashboardUiRouter({
 }));
 app.use('/callbook', createCallbookRouter());
 
+// A2A-52: pass agent's public key so /status can advertise it
+const _a2aKeypair = config.getKeypair();
 app.use('/api/a2a', createRoutes({
   tokenStore,
   eventStore,
+  publicKey: _a2aKeypair ? _a2aKeypair.publicKey : null,
   logger: logger.child({ component: 'a2a.routes' }),
   onCallMonitor: (monitor) => {
     activeCallMonitor = monitor;
