@@ -1535,7 +1535,12 @@ function handleZoneDrop(zone, e) {
   // since autoSaveTier() may refresh state.settings asynchronously.
   setTimeout(() => {
     const freshTier = (state.settings?.tiers || []).find(t => t.id === state.activeTierId);
-    if (freshTier) renderSidebarLists(freshTier);
+    if (freshTier) {
+      renderSidebarLists(freshTier);
+      // A2A-51: Re-bind drag listeners after innerHTML replacement in renderSidebarLists().
+      // Without this, sidebar items lose dragstart/dragend handlers after the first drop.
+      bindSidebarDrag();
+    }
   }, 300);
 }
 
@@ -1776,8 +1781,9 @@ function bindPermissionsActions() {
       return;
     }
 
-    // A2A-48: Sidebar "Add Topic" / "Add Goal" buttons open create dialog
-    const addBtn = e.target.closest('.sidebar-add-btn[data-add-type]');
+    // A2A-48: Sidebar "Add Topic" / "Add Goal" buttons open create dialog.
+    // A2A-51: Also matches .col-header-add-btn for narrow viewports where sidebar is hidden.
+    const addBtn = e.target.closest('[data-add-type]');
     if (addBtn) {
       const type = addBtn.dataset.addType;
       const dialog = document.getElementById('create-item-dialog');
@@ -1798,13 +1804,17 @@ function bindPermissionsActions() {
   // (#active-topics-zone, #active-goals-zone) persist across renders. Only
   // their innerHTML is replaced by renderActiveTopics/renderActiveGoals.
   // Binding in bindSidebarDrag() would cause listener accumulation.
+  // A2A-51: Uses dragenter/dragleave counter to prevent flickering when
+  // cursor moves over child elements (cards, placeholder) inside the zone.
   const topicZone = document.getElementById('active-topics-zone');
   const goalZone = document.getElementById('active-goals-zone');
   [topicZone, goalZone].forEach(zone => {
     if (!zone) return;
-    zone.addEventListener('dragover', (e) => { e.preventDefault(); zone.classList.add('drag-over'); });
-    zone.addEventListener('dragleave', () => zone.classList.remove('drag-over'));
-    zone.addEventListener('drop', (e) => handleZoneDrop(zone, e));
+    let dragCounter = 0;
+    zone.addEventListener('dragenter', (e) => { e.preventDefault(); dragCounter++; zone.classList.add('drag-over'); });
+    zone.addEventListener('dragover', (e) => { e.preventDefault(); });
+    zone.addEventListener('dragleave', () => { dragCounter--; if (dragCounter === 0) zone.classList.remove('drag-over'); });
+    zone.addEventListener('drop', (e) => { dragCounter = 0; handleZoneDrop(zone, e); });
   });
 
   // A2A-48: Tool toggle change — auto-save and update card styling
