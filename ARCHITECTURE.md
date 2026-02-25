@@ -28,6 +28,7 @@ A2A Calling enables agent-to-agent communication across OpenClaw instances. Agen
 │  ├─ summary-formatter.js  Format summaries for display            │
 │  ├─ disclosure.js     Disclosure level enforcement                │
 │  ├─ config.js         Config file management                      │
+│  ├─ crypto.js         Ed25519 identity keypair + signing           │
 │  ├─ logger.js         Structured logger (SQLite + stdout)         │
 │  ├─ call-monitor.js   Active call monitoring                      │
 │  ├─ callbook.js       Contact/callbook management                 │
@@ -79,6 +80,10 @@ Single-page app served from `src/dashboard/public/`. Uses Shoelace web component
 ## Native macOS App
 
 Tauri v2 app at `native/macos/` wrapping the dashboard SPA. Provides native menus, notifications, and server lifecycle management.
+
+## Identity Verification
+
+Ed25519 cryptographic identity for agents. Each instance generates a keypair on first run (stored in config). Outbound calls sign messages; inbound calls verify signatures. Uses Node.js built-in `crypto.sign`/`crypto.verify` — no external dependencies. See `src/lib/crypto.js`.
 
 ## Testing
 
