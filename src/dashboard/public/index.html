@@ -45,6 +45,11 @@
         <span class="material-symbols-outlined nav-icon" style="color:#EF4444;">monitor_heart</span>
         <span class="nav-label">Health</span>
       </a>
+      <!-- A2A-50: Settings nav item for relocated admin settings -->
+      <a data-panel="settings" class="nav-item">
+        <span class="material-symbols-outlined nav-icon" style="color:#6B7280;">settings</span>
+        <span class="nav-label">Settings</span>
+      </a>
     </nav>
   </aside>
 
@@ -147,77 +152,6 @@
 
             <!-- Tier Warnings -->
             <div id="tier-warnings" class="tier-warnings"></div>
-
-            <!-- Settings & Administration (collapsed) -->
-            <sl-details summary="Settings &amp; Administration">
-              <h3>Defaults</h3>
-              <form id="defaults-form">
-                <sl-input id="defaults-expiration" label="Expiration" placeholder="7d"></sl-input>
-                <sl-input id="defaults-max-calls" label="Max Calls" type="number" min="1"></sl-input>
-                <div class="row">
-                  <sl-button type="submit" variant="primary">Save Defaults</sl-button>
-                </div>
-              </form>
-
-              <h3>New Tier</h3>
-              <form id="new-tier-form">
-                <sl-input id="new-tier-id" label="Tier ID" placeholder="partners"></sl-input>
-                <sl-input id="new-tier-name" label="Name" placeholder="Partners"></sl-input>
-                <label>Copy from
-                  <sl-select id="new-tier-copy-from" size="small">
-                    <sl-option value="">None</sl-option>
-                  </sl-select>
-                </label>
-                <div class="row">
-                  <sl-button type="submit" variant="primary">Create Tier</sl-button>
-                </div>
-              </form>
-
-              <h3>Remote Callbook</h3>
-              <sl-card id="callbook-status"></sl-card>
-
-              <h3>Auto Update</h3>
-              <sl-card id="auto-update-status">Loading...</sl-card>
-              <div class="row">
-                <sl-button id="auto-update-check" size="small">Check now</sl-button>
-                <sl-button id="auto-update-now" size="small">Update now</sl-button>
-                <sl-button id="auto-update-toggle" size="small">Disable auto-update</sl-button>
-              </div>
-
-              <sl-card>
-                <form id="callbook-provision-form">
-                  <div class="row">
-                    <sl-button type="submit" variant="primary" size="small">Create Install Link (24h)</sl-button>
-                    <sl-button id="callbook-logout" size="small" variant="default">Logout This Browser</sl-button>
-                  </div>
-                  <sl-input id="callbook-label" label="Device label" value="Callbook Remote"></sl-input>
-                  <sl-textarea id="callbook-install-url" label="Install URL" rows="3" readonly></sl-textarea>
-                  <div class="row">
-                    <sl-button id="callbook-copy-url" size="small">Copy Link</sl-button>
-                  </div>
-                  <div id="callbook-warnings" class="mono"></div>
-                </form>
-              </sl-card>
-
-              <sl-card>
-                <div class="row">
-                  <strong>Paired Devices</strong>
-                </div>
-                <table id="callbook-devices-table">
-                  <thead>
-                    <tr>
-                      <th>Label</th>
-                      <th>Created</th>
-                      <th>Last Used</th>
-                      <th>Sessions</th>
-                      <th>Revoked</th>
-                      <th>Action</th>
-                    </tr>
-                  </thead>
-                  <tbody></tbody>
-                </table>
-              </sl-card>
-            </sl-details>
           </div>
 
           <!-- Right sidebar: preview + topic/goal lists -->
@@ -242,6 +176,30 @@
         <sl-dialog id="preview-dialog" label="Caller Preview" style="--width: 540px;">
           <div id="preview-content"></div>
           <sl-button slot="footer" variant="primary" id="preview-close-btn">Close</sl-button>
+        </sl-dialog>
+
+        <!-- A2A-50: Delete confirmation dialog for topics/goals -->
+        <sl-dialog id="delete-confirm-dialog" label="Confirm Removal" style="--width: 400px;">
+          <p id="delete-confirm-message">Remove this item from the tier?</p>
+          <div slot="footer" class="row">
+            <sl-button id="delete-confirm-no" variant="default">Cancel</sl-button>
+            <sl-button id="delete-confirm-yes" variant="danger">Remove</sl-button>
+          </div>
+        </sl-dialog>
+
+        <!-- A2A-50: New Tier dialog (glass-styled modal replacing inline form scroll) -->
+        <sl-dialog id="new-tier-dialog" label="Create New Tier" style="--width: 440px;">
+          <sl-input id="new-tier-dialog-id" label="Tier ID" placeholder="partners" required></sl-input>
+          <sl-input id="new-tier-dialog-name" label="Name" placeholder="Partners"></sl-input>
+          <label>Copy from
+            <sl-select id="new-tier-dialog-copy-from" size="small">
+              <sl-option value="">None</sl-option>
+            </sl-select>
+          </label>
+          <div slot="footer" class="row">
+            <sl-button id="new-tier-dialog-cancel" variant="default">Cancel</sl-button>
+            <sl-button id="new-tier-dialog-submit" variant="primary">Create Tier</sl-button>
+          </div>
         </sl-dialog>
       </div>
 
@@ -344,6 +302,77 @@
           </thead>
           <tbody></tbody>
         </table>
+      </div>
+
+      <!-- A2A-50: Settings panel — relocated from sl-details in panel-permissions -->
+      <div id="panel-settings" class="panel">
+        <h3>Defaults</h3>
+        <form id="defaults-form">
+          <sl-input id="defaults-expiration" label="Expiration" placeholder="7d"></sl-input>
+          <sl-input id="defaults-max-calls" label="Max Calls" type="number" min="1"></sl-input>
+          <div class="row">
+            <sl-button type="submit" variant="primary">Save Defaults</sl-button>
+          </div>
+        </form>
+
+        <h3>New Tier</h3>
+        <form id="new-tier-form">
+          <sl-input id="new-tier-id" label="Tier ID" placeholder="partners"></sl-input>
+          <sl-input id="new-tier-name" label="Name" placeholder="Partners"></sl-input>
+          <label>Copy from
+            <sl-select id="new-tier-copy-from" size="small">
+              <sl-option value="">None</sl-option>
+            </sl-select>
+          </label>
+          <div class="row">
+            <sl-button type="submit" variant="primary">Create Tier</sl-button>
+          </div>
+        </form>
+
+        <h3>Remote Callbook</h3>
+        <sl-card id="callbook-status"></sl-card>
+
+        <h3>Auto Update</h3>
+        <sl-card id="auto-update-status">Loading...</sl-card>
+        <div class="row">
+          <sl-button id="auto-update-check" size="small">Check now</sl-button>
+          <sl-button id="auto-update-now" size="small">Update now</sl-button>
+          <sl-button id="auto-update-toggle" size="small">Disable auto-update</sl-button>
+        </div>
+
+        <sl-card>
+          <form id="callbook-provision-form">
+            <div class="row">
+              <sl-button type="submit" variant="primary" size="small">Create Install Link (24h)</sl-button>
+              <sl-button id="callbook-logout" size="small" variant="default">Logout This Browser</sl-button>
+            </div>
+            <sl-input id="callbook-label" label="Device label" value="Callbook Remote"></sl-input>
+            <sl-textarea id="callbook-install-url" label="Install URL" rows="3" readonly></sl-textarea>
+            <div class="row">
+              <sl-button id="callbook-copy-url" size="small">Copy Link</sl-button>
+            </div>
+            <div id="callbook-warnings" class="mono"></div>
+          </form>
+        </sl-card>
+
+        <sl-card>
+          <div class="row">
+            <strong>Paired Devices</strong>
+          </div>
+          <table id="callbook-devices-table">
+            <thead>
+              <tr>
+                <th>Label</th>
+                <th>Created</th>
+                <th>Last Used</th>
+                <th>Sessions</th>
+                <th>Revoked</th>
+                <th>Action</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </sl-card>
       </div>
     </div>
   </main>

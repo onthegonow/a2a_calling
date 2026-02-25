@@ -255,13 +255,15 @@ async function copyText(value) {
 }
 
 // A2A-47: Panel name → section title mapping for the content header
+// A2A-50: Added 'settings' panel for relocated admin settings
 const panelTitles = {
   contacts: 'Contacts',
   calls: 'Calls',
   permissions: 'Permissions',
   invites: 'Invites',
   logs: 'Logs',
-  health: 'Health'
+  health: 'Health',
+  settings: 'Settings'
 };
 
 // A2A-47: Show a specific panel and update sidebar + header state.
@@ -313,9 +315,8 @@ function bindTabs() {
   // Deep-link support: activate the panel matching the URL hash
   const activateFromHash = () => {
     let hash = window.location.hash.slice(1);
-    // A2A-41: backward-compat alias — old bookmarks/links using #settings
-    // still work after rename to #permissions
-    if (hash === 'settings') hash = 'permissions';
+    // A2A-50: #settings now points to the real Settings panel (moved from
+    // being a backward-compat alias for #permissions in A2A-41).
     if (hash) {
       showPanel(hash);
     }
@@ -1495,8 +1496,10 @@ function bindSidebarDrag() {
   });
 }
 
-// A2A-48: Drop handler for active topic/goal zones. Extracted from
-// bindSidebarDrag() to be called once in bindPermissionsActions().
+// A2A-50: Drop handler for active topic/goal zones. Routes items to the
+// CORRECT zone based on data.type (not the zone they were dropped on).
+// This fixes the bug where dragging a topic onto the goals zone would
+// incorrectly add it as a goal and vice versa.
 function handleZoneDrop(zone, e) {
   e.preventDefault();
   zone.classList.remove('drag-over');
@@ -1504,33 +1507,28 @@ function handleZoneDrop(zone, e) {
   try { data = JSON.parse(e.dataTransfer.getData('application/json')); } catch { return; }
   if (!data.name) return;
 
-  const isTopicZone = zone.id === 'active-topics-zone';
-  const accentClass = isTopicZone ? 'active-item-card--teal' : 'active-item-card--yellow';
-  const typeLabel = isTopicZone ? 'Topic' : 'Goal';
-  const removeAttr = isTopicZone ? 'data-remove-topic' : 'data-remove-goal';
+  // A2A-50: Route to correct zone by data.type, NOT by which zone received
+  // the drop. Falls back to zone.id routing if data.type is missing (defensive).
+  const itemType = data.type || (zone.id === 'active-topics-zone' ? 'topic' : 'goal');
+  const targetZoneId = itemType === 'topic' ? 'active-topics-zone' : 'active-goals-zone';
+  const targetZone = document.getElementById(targetZoneId);
+  if (!targetZone) return;
 
-  // Check if already in zone
-  const existing = zone.querySelectorAll('.active-item-card');
+  const accentClass = itemType === 'topic' ? 'active-item-card--teal' : 'active-item-card--yellow';
+  const typeLabel = itemType === 'topic' ? 'Topic' : 'Goal';
+  const removeAttr = itemType === 'topic' ? 'data-remove-topic' : 'data-remove-goal';
+
+  // Check if already in target zone
+  const existing = targetZone.querySelectorAll('.active-item-card');
   for (const card of existing) {
     if (card.dataset.topic === data.name) return; // already active
   }
 
-  // Insert before the placeholder
-  const placeholder = zone.querySelector('.drop-placeholder');
-  const card = document.createElement('div');
-  card.className = `active-item-card ${accentClass}`;
-  card.dataset.topic = data.name;
-  card.dataset.description = data.description || '';
-  card.innerHTML = `
-    <div>
-      <div class="item-name">${esc(data.name)}</div>
-      <div class="item-type-label">${typeLabel}</div>
-    </div>
-    <button class="item-close-btn" ${removeAttr}="${esc(data.name)}">
-      <span class="material-symbols-outlined" style="font-size:16px;">close</span>
-    </button>
-  `;
-  zone.insertBefore(card, placeholder);
+  // A2A-50: Shared helper builds the card HTML to avoid duplication with
+  // the create-item-submit handler. Both paths now use buildItemCard().
+  const card = buildItemCard(data.name, data.description || '', accentClass, typeLabel, removeAttr);
+  const placeholder = targetZone.querySelector('.drop-placeholder');
+  targetZone.insertBefore(card, placeholder);
   autoSaveTier();
 
   // A2A-48: Re-fetch tier from state instead of using captured reference,
@@ -1541,12 +1539,33 @@ function handleZoneDrop(zone, e) {
   }, 300);
 }
 
-// A2A-48: Extracted from old fillTierSelects(). Populates only the
-// #invite-tier (Invites tab) and #new-tier-copy-from (Settings details).
-// Does NOT populate the removed #tier-select or #copy-from-tier.
+// A2A-50: Shared helper to build an active-item card DOM element.
+// Used by both handleZoneDrop() and the create-item-submit handler
+// to avoid duplicating card HTML in two places.
+function buildItemCard(name, description, accentClass, typeLabel, removeAttr) {
+  const card = document.createElement('div');
+  card.className = `active-item-card ${accentClass}`;
+  card.dataset.topic = name;
+  card.dataset.description = description;
+  card.innerHTML = `
+    <div>
+      <div class="item-name">${esc(name)}</div>
+      <div class="item-type-label">${typeLabel}</div>
+    </div>
+    <button class="item-close-btn" ${removeAttr}="${esc(name)}">
+      <span class="material-symbols-outlined" style="font-size:16px;">close</span>
+    </button>
+  `;
+  return card;
+}
+
+// A2A-50: Populates tier select dropdowns: #invite-tier (Invites tab),
+// #new-tier-copy-from (Settings tab), and #new-tier-dialog-copy-from
+// (new tier modal in Permissions tab).
 function populateInviteTierSelect() {
   const tiers = (state.settings?.tiers || []).slice().sort((a, b) => a.id.localeCompare(b.id));
   const newTierCopy = document.getElementById('new-tier-copy-from');
+  const newTierDialogCopy = document.getElementById('new-tier-dialog-copy-from');
   const inviteTier = document.getElementById('invite-tier');
 
   const optionsHtml = tiers.map(tier => {
@@ -1556,6 +1575,8 @@ function populateInviteTierSelect() {
 
   if (inviteTier) inviteTier.innerHTML = optionsHtml;
   if (newTierCopy) newTierCopy.innerHTML = `<sl-option value="">None</sl-option>${optionsHtml}`;
+  // A2A-50: Also populate the Copy From select inside the new-tier-dialog modal
+  if (newTierDialogCopy) newTierDialogCopy.innerHTML = `<sl-option value="">None</sl-option>${optionsHtml}`;
 
   // A2A-48: Default invite tier to 'public'
   const defaultTier = tiers.find(t => t.id === 'public') ? 'public' : tiers[0]?.id;
@@ -1683,6 +1704,23 @@ function openCallerPreview() {
   dialog.show();
 }
 
+// A2A-50: Shows the delete confirmation dialog for a topic/goal card.
+// Uses a unique marker attribute on the card so the confirm handler can
+// find and remove it. This avoids storing DOM references in closure state.
+let _deleteIdCounter = 0;
+function showDeleteConfirm(itemName, itemType, cardElement) {
+  const dialog = document.getElementById('delete-confirm-dialog');
+  if (!dialog) return;
+  const label = itemType === 'topic' ? 'Topic' : 'Goal';
+  const msgEl = document.getElementById('delete-confirm-message');
+  if (msgEl) msgEl.textContent = `Remove ${label} "${itemName}" from this tier?`;
+  // Tag the card with a unique ID so the confirm handler can find it
+  const deleteId = `del-${++_deleteIdCounter}`;
+  cardElement.setAttribute('data-delete-id', deleteId);
+  dialog.dataset.deleteCardId = deleteId;
+  dialog.show();
+}
+
 // A2A-48: Binds all event handlers for the permissions panel. Replaces old
 // bindSettingsActions() — removes handlers for deleted elements (tier-form,
 // tier-select, copy-tier-btn, show-drag-columns, preview-caller-btn) and
@@ -1701,33 +1739,40 @@ function bindPermissionsActions() {
       return;
     }
 
-    // A2A-48: Close button on active topic cards
+    // A2A-50: Close button on active topic cards opens delete confirmation dialog
     const removeTopic = e.target.closest('[data-remove-topic]');
     if (removeTopic) {
       const card = removeTopic.closest('.active-item-card');
-      if (card) card.remove();
-      autoSaveTier();
+      if (card) {
+        const itemName = card.dataset.topic || '';
+        showDeleteConfirm(itemName, 'topic', card);
+      }
       return;
     }
 
-    // A2A-48: Close button on active goal cards
+    // A2A-50: Close button on active goal cards opens delete confirmation dialog
     const removeGoal = e.target.closest('[data-remove-goal]');
     if (removeGoal) {
       const card = removeGoal.closest('.active-item-card');
-      if (card) card.remove();
-      autoSaveTier();
+      if (card) {
+        const itemName = card.dataset.topic || '';
+        showDeleteConfirm(itemName, 'goal', card);
+      }
       return;
     }
 
-    // A2A-48: "+ New Tier" button scrolls to the new-tier form inside Settings details
+    // A2A-50: "+ New Tier" button opens glass-styled sl-dialog instead of
+    // scrolling to inline form. Keeps focus trap and accessibility from Shoelace.
     const newTierBtn = e.target.closest('#perm-new-tier-btn');
     if (newTierBtn) {
-      const details = panel.querySelector('sl-details');
-      if (details) details.open = true;
-      setTimeout(() => {
-        const el = document.getElementById('new-tier-id');
-        if (el) { el.scrollIntoView({ behavior: 'smooth' }); el.focus(); }
-      }, 200);
+      const dialog = document.getElementById('new-tier-dialog');
+      if (dialog) {
+        const idInput = document.getElementById('new-tier-dialog-id');
+        const nameInput = document.getElementById('new-tier-dialog-name');
+        if (idInput) idInput.value = '';
+        if (nameInput) nameInput.value = '';
+        dialog.show();
+      }
       return;
     }
 
@@ -1775,7 +1820,8 @@ function bindPermissionsActions() {
     }
   });
 
-  // A2A-48: Create Item dialog — submit handler
+  // A2A-50: Create Item dialog — submit handler. Uses shared buildItemCard()
+  // helper to avoid duplicating card HTML with handleZoneDrop().
   document.getElementById('create-item-submit')?.addEventListener('click', () => {
     const dialog = document.getElementById('create-item-dialog');
     const titleInput = document.getElementById('create-item-title');
@@ -1787,7 +1833,6 @@ function bindPermissionsActions() {
     const desc = descInput?.value?.trim() || '';
     const type = dialog.dataset.createType || 'topic';
 
-    // A2A-48: Add item to the appropriate active zone
     const zoneId = type === 'topic' ? 'active-topics-zone' : 'active-goals-zone';
     const zone = document.getElementById(zoneId);
     if (!zone) return;
@@ -1796,20 +1841,8 @@ function bindPermissionsActions() {
     const typeLabel = type === 'topic' ? 'Topic' : 'Goal';
     const removeAttr = type === 'topic' ? 'data-remove-topic' : 'data-remove-goal';
 
+    const card = buildItemCard(title, desc, accentClass, typeLabel, removeAttr);
     const placeholder = zone.querySelector('.drop-placeholder');
-    const card = document.createElement('div');
-    card.className = `active-item-card ${accentClass}`;
-    card.dataset.topic = title;
-    card.dataset.description = desc;
-    card.innerHTML = `
-      <div>
-        <div class="item-name">${esc(title)}</div>
-        <div class="item-type-label">${typeLabel}</div>
-      </div>
-      <button class="item-close-btn" ${removeAttr}="${esc(title)}">
-        <span class="material-symbols-outlined" style="font-size:16px;">close</span>
-      </button>
-    `;
     if (placeholder) zone.insertBefore(card, placeholder);
     else zone.appendChild(card);
 
@@ -1822,41 +1855,69 @@ function bindPermissionsActions() {
     document.getElementById('create-item-dialog')?.hide();
   });
 
-  // Defaults form — unchanged from A2A-41
-  document.getElementById('defaults-form')?.addEventListener('submit', async (e) => {
-    e.preventDefault();
-    await request('/settings/defaults', {
-      method: 'PUT',
-      body: JSON.stringify({
-        expiration: document.getElementById('defaults-expiration').value,
-        maxCalls: Number.parseInt(document.getElementById('defaults-max-calls').value, 10) || 100
-      })
-    });
-    showNotice('Saved defaults');
-    await loadSettings();
+  // A2A-50: New Tier dialog — submit handler (replaces inline form handler).
+  // Creates tier via POST and switches to it.
+  document.getElementById('new-tier-dialog-submit')?.addEventListener('click', async () => {
+    const tierId = document.getElementById('new-tier-dialog-id')?.value?.trim();
+    const name = document.getElementById('new-tier-dialog-name')?.value?.trim();
+    const copyFrom = document.getElementById('new-tier-dialog-copy-from')?.value;
+    if (!tierId) {
+      document.getElementById('new-tier-dialog-id')?.focus();
+      return;
+    }
+    try {
+      await request('/settings/tiers', {
+        method: 'POST',
+        body: JSON.stringify({
+          id: tierId,
+          name: name || tierId,
+          copy_from: copyFrom || undefined
+        })
+      });
+      showNotice(`Created tier "${tierId}"`);
+      document.getElementById('new-tier-dialog')?.hide();
+      await loadSettings();
+      state.activeTierId = tierId;
+      renderPermissions();
+    } catch (err) {
+      showNotice(err.message);
+    }
   });
 
-  // A2A-48: New Tier form — uses state.activeTierId instead of removed #tier-select
-  document.getElementById('new-tier-form')?.addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const tierId = document.getElementById('new-tier-id').value.trim();
-    const name = document.getElementById('new-tier-name').value.trim();
-    const copyFrom = document.getElementById('new-tier-copy-from').value;
-    if (!tierId) return;
-    await request('/settings/tiers', {
-      method: 'POST',
-      body: JSON.stringify({
-        id: tierId,
-        name: name || tierId,
-        copy_from: copyFrom || undefined
-      })
-    });
-    showNotice(`Created tier "${tierId}"`);
-    document.getElementById('new-tier-form').reset();
-    await loadSettings();
-    // A2A-48: Switch to the newly created tier (replaces old tier-select.value = tierId)
-    state.activeTierId = tierId;
-    renderPermissions();
+  // A2A-50: New Tier dialog — cancel handler
+  document.getElementById('new-tier-dialog-cancel')?.addEventListener('click', () => {
+    document.getElementById('new-tier-dialog')?.hide();
+  });
+
+  // A2A-50: Delete confirm dialog — confirm handler. Removes the card that
+  // was stored in dataset and triggers auto-save.
+  document.getElementById('delete-confirm-yes')?.addEventListener('click', () => {
+    const dialog = document.getElementById('delete-confirm-dialog');
+    if (!dialog) return;
+    const cardId = dialog.dataset.deleteCardId;
+    if (cardId) {
+      const card = document.querySelector(`.active-item-card[data-delete-id="${cardId}"]`);
+      if (card) {
+        card.removeAttribute('data-delete-id');
+        card.remove();
+      }
+    }
+    dialog.hide();
+    autoSaveTier();
+  });
+
+  // A2A-50: Delete confirm dialog — cancel handler
+  document.getElementById('delete-confirm-no')?.addEventListener('click', () => {
+    const dialog = document.getElementById('delete-confirm-dialog');
+    if (dialog) {
+      // Clean up the marker attribute from the card
+      const cardId = dialog.dataset.deleteCardId;
+      if (cardId) {
+        const card = document.querySelector(`.active-item-card[data-delete-id="${cardId}"]`);
+        if (card) card.removeAttribute('data-delete-id');
+      }
+      dialog.hide();
+    }
   });
 
   // Preview dialog close — unchanged
@@ -2243,6 +2304,8 @@ const tabLoaders = {
   permissions: loadSettings,
   invites: loadInvites,
   health: loadHealth,
+  // A2A-50: Settings tab loads dashboard status, auto-update, and callbook data
+  settings: () => { loadDashboardStatus(); loadAutoUpdateStatus(); loadCallbookDevices(); },
 };
 
 function startPolling() {
@@ -2361,6 +2424,55 @@ function renderHealthHistory(history) {
   }).join('');
 }
 
+// A2A-50: Binds handlers for the Settings panel (defaults form, new-tier form).
+// These were previously inside bindPermissionsActions() but are now in the
+// separate #panel-settings panel.
+function bindSettingsActions() {
+  // Defaults form
+  document.getElementById('defaults-form')?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    try {
+      await request('/settings/defaults', {
+        method: 'PUT',
+        body: JSON.stringify({
+          expiration: document.getElementById('defaults-expiration').value,
+          maxCalls: Number.parseInt(document.getElementById('defaults-max-calls').value, 10) || 100
+        })
+      });
+      showNotice('Saved defaults');
+      await loadSettings();
+    } catch (err) {
+      showNotice(err.message);
+    }
+  });
+
+  // New Tier form (inline form in Settings tab, kept for non-modal access)
+  document.getElementById('new-tier-form')?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const tierId = document.getElementById('new-tier-id')?.value?.trim();
+    const name = document.getElementById('new-tier-name')?.value?.trim();
+    const copyFrom = document.getElementById('new-tier-copy-from')?.value;
+    if (!tierId) return;
+    try {
+      await request('/settings/tiers', {
+        method: 'POST',
+        body: JSON.stringify({
+          id: tierId,
+          name: name || tierId,
+          copy_from: copyFrom || undefined
+        })
+      });
+      showNotice(`Created tier "${tierId}"`);
+      document.getElementById('new-tier-form')?.reset();
+      await loadSettings();
+      state.activeTierId = tierId;
+      renderPermissions();
+    } catch (err) {
+      showNotice(err.message);
+    }
+  });
+}
+
 async function bootstrap() {
   bindTabs();
   bindContactsActions();
@@ -2368,6 +2480,8 @@ async function bootstrap() {
   // bindItemListDelegation(). All tier/tool/topic/goal handlers are now
   // inside bindPermissionsActions() using event delegation on #panel-permissions.
   bindPermissionsActions();
+  // A2A-50: Settings panel handlers (defaults, new-tier inline form)
+  bindSettingsActions();
   bindCallbookActions();
   bindAutoUpdateActions();
   bindInviteActions();
