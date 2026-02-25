@@ -348,6 +348,14 @@ class CallbookStore {
     });
     return tx();
   }
+
+  // A2A-57: Close the SQLite database and flush WAL on shutdown
+  close() {
+    if (this.db) {
+      try { this.db.close(); } catch (_) {}
+      this.db = null;
+    }
+  }
 }
 
 module.exports = {
