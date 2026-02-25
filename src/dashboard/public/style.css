@@ -1194,6 +1194,20 @@ sl-details::part(base) {
   color: var(--ink);
 }
 
+/* A2A-50: Glass styling for sl-dialog panels in the Permissions tab.
+   Uses ::part(panel) to style the shadow DOM of Shoelace dialogs while
+   preserving accessibility features (focus trap, ESC, ARIA). The codebase
+   already uses ::part(base) on sl-card (line 205) and sl-details (line 1152). */
+#create-item-dialog::part(panel),
+#preview-dialog::part(panel),
+#delete-confirm-dialog::part(panel),
+#new-tier-dialog::part(panel) {
+  background: rgba(30, 41, 59, 0.85);
+  backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 16px;
+}
+
 /* ── A2A-48: Hide permissions sidebar below 1280px ─────────── */
 @media (max-width: 1280px) {
   .perm-sidebar {
