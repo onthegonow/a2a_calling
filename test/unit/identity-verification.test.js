@@ -63,6 +63,19 @@ module.exports = function (test, assert, helpers) {
     tmp.cleanup();
   });
 
+  test('export() strips private_key from agent config', () => {
+    const config = freshConfig();
+    delete require.cache[require.resolve('../../src/lib/crypto')];
+    const { generateKeypair } = require('../../src/lib/crypto');
+    const kp = generateKeypair();
+    config.setKeypair(kp.privateKey, kp.publicKey);
+
+    const exported = config.export();
+    assert.equal(exported.agent.private_key, undefined, 'private_key must not be in export');
+    assert.equal(exported.agent.public_key, kp.publicKey, 'public_key should be present in export');
+    tmp.cleanup();
+  });
+
   // ── Client Signing ─────────────────────────────────────────────
 
   test('client._signHeaders returns empty object without keys', () => {

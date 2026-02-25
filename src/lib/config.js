@@ -442,12 +442,13 @@ class A2AConfig {
     return next;
   }
 
-  // Export for sharing
+  // Export for sharing (strips private_key to prevent leakage — A2A-52)
   export() {
+    const { private_key, ...agentPublic } = this.config.agent || {};
     return {
       tiers: this.config.tiers,
       defaults: this.config.defaults,
-      agent: this.config.agent
+      agent: agentPublic
     };
   }
 }

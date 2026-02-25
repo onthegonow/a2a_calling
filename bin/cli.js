@@ -1580,6 +1580,8 @@ a2a add "${inviteUrl}" "${ownerText || 'friend'}" && a2a call "${ownerText || 'f
         // Best effort
       }
 
+      // A2A-52: load keypair for request signing in multi-turn calls
+      const _multiKeypair = config.getKeypair();
       const driver = new ConversationDriver({
         runtime,
         agentContext,
@@ -1591,6 +1593,8 @@ a2a add "${inviteUrl}" "${ownerText || 'friend'}" && a2a call "${ownerText || 'f
         maxTurns,
         configTurnTimeoutMs,
         ownerContext,
+        privateKey: _multiKeypair ? _multiKeypair.privateKey : null,
+        publicKey: _multiKeypair ? _multiKeypair.publicKey : null,
         onTurn: (info) => {
           const preview = info.messagePreview.length >= 80
             ? info.messagePreview + '...'
@@ -1631,8 +1635,12 @@ a2a add "${inviteUrl}" "${ownerText || 'friend'}" && a2a call "${ownerText || 'f
     }
 
     // Single-shot call (existing behavior)
+    // A2A-52: load keypair for request signing
+    const _callKeypair = config.getKeypair();
     const client = new A2AClient({
-      caller: { name: callerName }
+      caller: { name: callerName },
+      privateKey: _callKeypair ? _callKeypair.privateKey : null,
+      publicKey: _callKeypair ? _callKeypair.publicKey : null
     });
 
     try {
