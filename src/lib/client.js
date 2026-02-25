@@ -4,6 +4,7 @@
 
 const https = require('https');
 const http = require('http');
+const { signRequest } = require('./crypto');
 
 function splitHostPort(rawHost) {
   const host = String(rawHost || '').trim();
@@ -54,6 +55,24 @@ class A2AClient {
   constructor(options = {}) {
     this.timeout = options.timeout || 60000;
     this.caller = options.caller || {};
+    // A2A-52: Ed25519 identity keys for request signing
+    this.privateKey = options.privateKey || null;
+    this.publicKey = options.publicKey || null;
+  }
+
+  /**
+   * A2A-52: Build signature headers if keypair is available.
+   * Shared helper used by both call() and end().
+   */
+  _signHeaders(method, endpoint, body) {
+    if (!this.privateKey || !this.publicKey) return {};
+    return signRequest({
+      privateKey: this.privateKey,
+      publicKey: this.publicKey,
+      method,
+      endpoint,
+      body
+    });
   }
 
   /**
@@ -95,6 +114,8 @@ class A2AClient {
     });
 
     const { protocol, hostname, port } = resolveProtocolAndPort(host);
+    // A2A-52: attach signature headers when keypair available
+    const sigHeaders = this._signHeaders('POST', '/api/a2a/invoke', body);
 
     return new Promise((resolve, reject) => {
       const req = protocol.request({
@@ -105,7 +126,8 @@ class A2AClient {
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json',
-          'Content-Length': Buffer.byteLength(body)
+          'Content-Length': Buffer.byteLength(body),
+          ...sigHeaders
         },
         timeout: this.timeout
       }, (res) => {
@@ -141,7 +163,7 @@ class A2AClient {
 
   /**
    * Explicitly end a remote conversation and trigger call conclusion
-   * 
+   *
    * @param {string|object} endpoint - a2a:// URL or {host, token}
    * @param {string} conversationId - Conversation ID to conclude
    * @returns {Promise<object>} End response from remote agent
@@ -152,7 +174,7 @@ class A2AClient {
     }
 
     let host, token;
-    
+
     if (typeof endpoint === 'string') {
       ({ host, token } = A2AClient.parseInvite(endpoint));
     } else {
@@ -164,6 +186,8 @@ class A2AClient {
     });
 
     const { protocol, hostname, port } = resolveProtocolAndPort(host);
+    // A2A-52: attach signature headers when keypair available
+    const sigHeaders = this._signHeaders('POST', '/api/a2a/end', body);
 
     return new Promise((resolve, reject) => {
       const req = protocol.request({
@@ -174,7 +198,8 @@ class A2AClient {
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json',
-          'Content-Length': Buffer.byteLength(body)
+          'Content-Length': Buffer.byteLength(body),
+          ...sigHeaders
         },
         timeout: this.timeout
       }, (res) => {

@@ -1103,17 +1103,18 @@ a2a add "${inviteUrl}" "${ownerText || 'friend'}" && a2a call "${ownerText || 'f
     console.log('Legend: 🌐 public  🔧 friends  ⚡ family');
   },
 
-  'contacts:add': (args) => {
+  'contacts:add': async (args) => {
     const url = args._[2];
     if (!url) {
       console.error('Usage: a2a contacts add <invite_url> [options]');
       console.error('Options:');
-      console.error('  --name, -n     Agent name');
-      console.error('  --owner, -o    Owner name');
-      console.error('  --server-name  Server label (optional)');
-      console.error('  --notes        Notes about this contact');
-      console.error('  --tags         Comma-separated tags');
-      console.error('  --link         Link to token ID you gave them');
+      console.error('  --name, -n       Agent name');
+      console.error('  --owner, -o      Owner name');
+      console.error('  --server-name    Server label (optional)');
+      console.error('  --notes          Notes about this contact');
+      console.error('  --tags           Comma-separated tags');
+      console.error('  --link           Link to token ID you gave them');
+      console.error('  --public-key     Ed25519 public key (base64, or "fetch" to get from /status)');
       process.exit(1);
     }
 
@@ -1125,6 +1126,24 @@ a2a add "${inviteUrl}" "${ownerText || 'friend'}" && a2a call "${ownerText || 'f
       tags: args.flags.tags ? args.flags.tags.split(',').map(t => t.trim()) : [],
       linkedTokenId: args.flags.link || null
     };
+
+    // A2A-52: fetch or accept public key for identity verification
+    const pubKeyFlag = args.flags['public-key'] || args.flags.public_key || args.flags.publicKey;
+    if (pubKeyFlag === 'fetch' || pubKeyFlag === true) {
+      try {
+        const client = new A2AClient({});
+        const statusResult = await client.status(url);
+        if (statusResult.public_key) {
+          options.public_key = statusResult.public_key;
+          const { fingerprint: fpFunc } = require('../src/lib/crypto');
+          console.log(`  Fetched public key: ${fpFunc(statusResult.public_key)}`);
+        }
+      } catch (fetchErr) {
+        console.error(`  Warning: could not fetch public key from /status: ${fetchErr.message}`);
+      }
+    } else if (pubKeyFlag && typeof pubKeyFlag === 'string') {
+      options.public_key = pubKeyFlag;
+    }
 
     try {
       const result = store.addContact(url, options);
@@ -1186,13 +1205,22 @@ a2a add "${inviteUrl}" "${ownerText || 'friend'}" && a2a call "${ownerText || 'f
       console.log(`🔐 No linked token (you haven't given them access yet)`);
     }
     
+    // A2A-52: show cryptographic identity verification status
+    if (remote.public_key) {
+      const { fingerprint: fpFunc } = require('../src/lib/crypto');
+      console.log(`🔑 Identity: verified`);
+      console.log(`   Fingerprint: ${fpFunc(remote.public_key)}`);
+    } else {
+      console.log(`🔑 Identity: unverified (no public key pinned)`);
+    }
+
     if (remote.tags && remote.tags.length > 0) {
       console.log(`🏷️  Tags: ${remote.tags.join(', ')}`);
     }
     if (remote.notes) {
       console.log(`📝 Notes: ${remote.notes}`);
     }
-    
+
     console.log(`\n📅 Added: ${new Date(remote.added_at).toLocaleDateString()}`);
     if (remote.last_seen) {
       console.log(`📍 Last seen: ${formatTimeAgo(new Date(remote.last_seen))}`);
@@ -1300,6 +1328,23 @@ a2a add "${inviteUrl}" "${ownerText || 'friend'}" && a2a call "${ownerText || 'f
       console.log(`🟢 ${remote.name} is online`);
       console.log(`   Agent: ${result.name}`);
       console.log(`   Version: ${result.version}`);
+
+      // A2A-52: also fetch /status to refresh public key
+      try {
+        const statusResult = await client.status(url);
+        if (statusResult.public_key) {
+          const { fingerprint: fpFunc } = require('../src/lib/crypto');
+          if (remote.public_key && remote.public_key !== statusResult.public_key) {
+            console.log(`   ⚠️  Public key changed!`);
+            console.log(`      Old: ${fpFunc(remote.public_key)}`);
+            console.log(`      New: ${fpFunc(statusResult.public_key)}`);
+          }
+          store.updateContact(name, { public_key: statusResult.public_key });
+          console.log(`   🔑 Fingerprint: ${fpFunc(statusResult.public_key)}`);
+        }
+      } catch (_) {
+        // /status fetch is best-effort during ping
+      }
     } catch (err) {
       store.updateContactStatus(name, 'offline', err.message);
       console.log(`🔴 ${remote.name} is offline`);
@@ -2290,6 +2335,21 @@ a2a add "${inviteUrl}" "${ownerText || 'friend'}" && a2a call "${ownerText || 'f
           }
         }
       } catch (_) {}
+    }
+
+    // A2A-52: Generate Ed25519 keypair for cryptographic identity (skip if already exists)
+    const existingKeypair = config.getKeypair();
+    if (!existingKeypair) {
+      const { generateKeypair, fingerprint: fpFunc } = require('../src/lib/crypto');
+      const keypair = generateKeypair();
+      config.setKeypair(keypair.privateKey, keypair.publicKey);
+      const fp = fpFunc(keypair.publicKey);
+      console.log(`\n  🔑 Ed25519 identity generated`);
+      console.log(`     Fingerprint: ${fp}`);
+    } else {
+      const { fingerprint: fpFunc } = require('../src/lib/crypto');
+      console.log(`\n  🔑 Ed25519 identity exists (not overwritten)`);
+      console.log(`     Fingerprint: ${fpFunc(existingKeypair.publicKey)}`);
     }
 
     // Save server config and advance onboarding state to awaiting_disclosure.

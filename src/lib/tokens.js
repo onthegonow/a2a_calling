@@ -448,6 +448,7 @@ class TokenStore {
       tags: Array.isArray(options.tags) ? options.tags : [],
       fields: sanitizeCustomFields(options.fields || options.custom_fields || options.customFields),
       linked_token_id: options.linkedTokenId || options.linked_token_id || null,  // Token you gave them
+      public_key: options.public_key || options.publicKey || null,  // A2A-52: Ed25519 public key (base64 DER)
       status: 'unknown',
       last_seen: null,
       added_at: new Date().toISOString(),
@@ -597,7 +598,8 @@ class TokenStore {
 	    }
 
 	    // Only allow updating specific fields
-	    const allowed = ['name', 'owner', 'is_mine', 'notes', 'tags', 'linked_token_id', 'server_name', 'fields'];
+	    // A2A-52: 'public_key' added for Ed25519 identity verification (TOFU pinning)
+	    const allowed = ['name', 'owner', 'is_mine', 'notes', 'tags', 'linked_token_id', 'server_name', 'fields', 'public_key'];
 	    for (const key of allowed) {
 	      if (updates[key] !== undefined) {
 	        if (key === 'fields') {
@@ -764,6 +766,7 @@ class TokenStore {
       tags: ['inbound'],
       fields: {},
       linked_token_id: tokenId || null,
+      public_key: null,  // A2A-52: populated via TOFU on first verified call
       status: 'unknown',
       last_seen: null,
       added_at: new Date().toISOString(),
