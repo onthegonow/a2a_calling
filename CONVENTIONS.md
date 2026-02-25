@@ -85,6 +85,22 @@ Dashboard API integration tests follow the pattern in `test/integration/dashboar
 - Call `loggerModule.closeAllLoggerStores()` in teardown to prevent SQLite handle leaks
 - Pass `convStore` directly via `options.convStore` when testing calls endpoints
 
+## Store Lifecycle (A2A-57)
+
+All SQLite store classes (`ConversationStore`, `DashboardEventStore`, `CallbookStore`, `LoggerStore`) implement a `close()` method following this pattern:
+```js
+close() {
+  if (this.db) {
+    try { this.db.close(); } catch (_) {}
+    this.db = null;
+  }
+}
+```
+- `close()` must be idempotent (safe to call multiple times)
+- `close()` must be a no-op when DB was never initialized (`this.db === null`)
+- The `server.js` `shutdown()` function closes all stores on SIGTERM/SIGINT
+- Test teardown should call `store.close()` to prevent SQLite handle leaks
+
 ## Permission Tiers
 
 Tokens have a tier (`public`, `friends`, `family`) and a disclosure level (`public`, `minimal`, `none`). These are enforced at the route level in `src/routes/a2a.js`.
