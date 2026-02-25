@@ -20,7 +20,7 @@ A2A Calling enables agent-to-agent communication across OpenClaw instances. Agen
 ┌───────────▼──────────────────────────────────────────────────────┐
 │  Core Libraries (src/lib/)                                        │
 │  ├─ tokens.js         Token CRUD, validation, tiers               │
-│  ├─ client.js         A2AClient for outbound calls                │
+│  ├─ client.js         A2AClient for outbound calls (retry + size cap) │
 │  ├─ conversations.js  ConversationStore (SQLite)                  │
 │  ├─ conversation-driver.js  Multi-turn call orchestration         │
 │  ├─ summarizer.js     Call summary generation                     │
@@ -95,3 +95,7 @@ Zero-dependency test runner at `test/run.js` with custom assert API. Three test 
 Test profiles at `test/profiles/` represent real personas with distinct permission tiers.
 
 E2E test results are persisted to `~/.config/openclaw/a2a-e2e-results.json` via `test/e2e/persist.js` and surfaced in the dashboard Health tab. The `scripts/run-e2e.sh` orchestrator runs E2E suites and stores results.
+
+## Network Resilience
+
+The outbound A2A client (`src/lib/client.js`) retries transient network failures (ECONNRESET, ECONNREFUSED, EPIPE, ENOTFOUND, EAI_AGAIN, timeouts) with exponential backoff (0s, 1s, 2s). HTTP 4xx/5xx errors are not retried. All response accumulation is capped at 2MB to prevent OOM from malicious remotes.

@@ -67,6 +67,24 @@ All modules use CommonJS (`require`/`module.exports`). Each lib file exports a f
 - Sidebar navigation with tab switching (Contacts, Calls, Invites, Logs, Settings, Permissions, Health)
 - Permissions tab uses tier cards with tool toggles and auto-save
 
+## Network Resilience (A2A-54)
+
+Outbound client methods (`call()`, `end()`) automatically retry transient network errors with exponential backoff. Pattern:
+- Use `withRetry(fn, { delays })` for retryable operations
+- Only retry on transient errors (ECONNRESET, ECONNREFUSED, EPIPE, ENOTFOUND, EAI_AGAIN, timeout)
+- Never retry HTTP 4xx/5xx — those are explicit server rejections
+- All HTTP responses are size-capped at 2MB via `handleSizeCappedResponse()`
+- Configurable retry delays via `_retryDelays` constructor option (used in tests with `[0,0,0]` for fast execution)
+
+## Dashboard API Testing (A2A-56)
+
+Dashboard API integration tests follow the pattern in `test/integration/dashboard-logs.test.js`:
+- Mount `createDashboardApiRouter()` on an Express app
+- Use `helpers.request()` for HTTP assertions (binds to 127.0.0.1 — bypasses auth)
+- Bust module caches for `dashboard`, `logger`, `tokens`, `config`, `disclosure`, `conversations`, `callbook`, `dashboard-events`
+- Call `loggerModule.closeAllLoggerStores()` in teardown to prevent SQLite handle leaks
+- Pass `convStore` directly via `options.convStore` when testing calls endpoints
+
 ## Permission Tiers
 
 Tokens have a tier (`public`, `friends`, `family`) and a disclosure level (`public`, `minimal`, `none`). These are enforced at the route level in `src/routes/a2a.js`.
