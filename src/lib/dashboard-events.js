@@ -182,6 +182,14 @@ class DashboardEventStore {
     };
   }
 
+  // A2A-57: Close the SQLite database and flush WAL on shutdown
+  close() {
+    if (this.db) {
+      try { this.db.close(); } catch (_) {}
+      this.db = null;
+    }
+  }
+
   _toEvent(row) {
     let payload = {};
     try {

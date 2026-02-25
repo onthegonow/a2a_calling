@@ -21,7 +21,7 @@ const {
   extractCollaborationState
 } = require('./lib/prompt-template');
 const { findAvailablePort } = require('./lib/port-scanner');
-const { createLogger } = require('./lib/logger');
+const { createLogger, closeAllLoggerStores } = require('./lib/logger');
 const { writePidFile, removePidFile } = require('./lib/pid-file');
 const { buildUnifiedSummaryPrompt } = require('./lib/summary-prompt');
 const { A2AConfig } = require('./lib/config');
@@ -1073,9 +1073,15 @@ async function startServer() {
     throw err;
   });
 
+  // A2A-57: Close all SQLite stores before shutting down the HTTP server
   function shutdown() {
     if (updateManager) updateManager.stop();
     removePidFile();
+    if (serverConvStore && serverConvStore.close) {
+      try { serverConvStore.close(); } catch (_) {}
+    }
+    try { eventStore.close(); } catch (_) {}
+    try { closeAllLoggerStores(); } catch (_) {}
     server.close(() => process.exit(0));
     // Force exit after 5s if connections won't close
     setTimeout(() => process.exit(0), 5000).unref();
