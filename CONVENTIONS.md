@@ -99,12 +99,19 @@ close() {
 ```
 - `close()` must be idempotent (safe to call multiple times)
 - `close()` must be a no-op when DB was never initialized (`this.db === null`)
-- The `server.js` `shutdown()` function closes all stores on SIGTERM/SIGINT
+- The `server.js` `shutdown()` function closes all stores on SIGTERM/SIGINT: `serverConvStore`, `eventStore`, `callbookStore` (A2A-59), and logger stores
+- All stores should be created at the `server.js` module level and passed to route factories — do NOT create stores inside route factories (A2A-59)
 - Test teardown should call `store.close()` to prevent SQLite handle leaks
 
 ## Permission Tiers
 
 Tokens have a tier (`public`, `friends`, `family`) and a disclosure level (`public`, `minimal`, `none`). These are enforced at the route level in `src/routes/a2a.js`.
+
+## Route Hardening (A2A-53)
+
+- Rate limit Map has eviction: entries are swept when Map exceeds 1000 entries (stale >24h first, then oldest by insertion order)
+- Admin token comparison uses `timingSafeTokenEqual()` from `src/routes/a2a.js` — do NOT use `!==` for secret comparison
+- Query parameter parsing follows the dashboard.js pattern: `Math.min(max, Math.max(min, Number.parseInt(String(value), 10) || defaultValue))`
 
 ## Anti-Patterns
 
