@@ -1351,10 +1351,13 @@ function renderSidebarPreview(tierId) {
 function renderSidebarLists(tier) {
   const topicContainer = document.getElementById('sidebar-topics');
   const goalContainer = document.getElementById('sidebar-goals');
-  if (!topicContainer || !goalContainer) return;
+  if (!topicContainer || !goalContainer || !tier) return;
 
-  // Collect ALL topics across ALL tiers for the sidebar
-  const allTiers = state.settings?.tiers || [];
+  // Collect ALL topics/goals across tiers, but prioritize the currently
+  // rendered tier first so sidebar drag payloads carry the right metadata.
+  // This also ensures unsaved in-DOM items from create/drop appear immediately.
+  const baseTiers = state.settings?.tiers || [];
+  const allTiers = [tier, ...baseTiers.filter(t => t.id !== tier.id)];
   const allTopicMap = new Map();
   const allGoalMap = new Map();
   for (const t of allTiers) {
@@ -1362,17 +1365,24 @@ function renderSidebarLists(tier) {
     const fTopics = t.topics || [];
     const topics = mTopics.length > 0 ? mTopics : fTopics.map(x => ({ topic: x, description: '' }));
     for (const item of topics) {
-      if (item.topic && !allTopicMap.has(item.topic)) {
-        allTopicMap.set(item.topic, item.description || '');
+      if (!item.topic) continue;
+      const existingDesc = allTopicMap.get(item.topic);
+      const nextDesc = item.description || '';
+      if (!allTopicMap.has(item.topic) || (!existingDesc && nextDesc)) {
+        allTopicMap.set(item.topic, nextDesc);
       }
     }
+
     const mGoals = t.manifest?.objectives || [];
     const fGoals = t.goals || [];
     const goals = mGoals.length > 0 ? mGoals : fGoals.map(x => ({ topic: x, description: '' }));
     for (const item of goals) {
       const label = item.objective || item.topic;
-      if (label && !allGoalMap.has(label)) {
-        allGoalMap.set(label, item.description || '');
+      if (!label) continue;
+      const existingDesc = allGoalMap.get(label);
+      const nextDesc = item.description || '';
+      if (!allGoalMap.has(label) || (!existingDesc && nextDesc)) {
+        allGoalMap.set(label, nextDesc);
       }
     }
   }
@@ -1428,53 +1438,128 @@ function renderSidebarLists(tier) {
   `;
 }
 
-// A2A-48: Debounced auto-save replaces explicit Save Tier button.
-// 250ms delay prevents excessive API calls during rapid changes.
-let _autoSaveTimer = null;
-function autoSaveTier() {
-  clearTimeout(_autoSaveTimer);
-  _autoSaveTimer = setTimeout(async () => {
-    const tierId = state.activeTierId;
-    if (!tierId) return;
+// A2A-61: Snapshot permissions payload from live DOM at mutation time.
+// This prevents polling/re-render races from dropping unsaved drag changes.
+function collectTierPayloadFromDom() {
+  const toggles = document.querySelectorAll('#tool-toggles .toggle-switch input');
+  const allowed_tools = Array.from(toggles).filter(t => t.checked).map(t => t.dataset.tool);
 
-    // Collect tools from toggle states
-    const toggles = document.querySelectorAll('#tool-toggles .toggle-switch input');
-    const allowed_tools = Array.from(toggles).filter(t => t.checked).map(t => t.dataset.tool);
+  const topicCards = document.querySelectorAll('#active-topics-zone .active-item-card');
+  // A2A-48: uses dataset.topic for BOTH topics and goals (NOT dataset.objective)
+  // because parseTopicObjects() in dashboard.js only reads entry.topic.
+  const topics = Array.from(topicCards).map(c => c.dataset.topic).filter(Boolean);
+  const manifestTopics = Array.from(topicCards).map(c => ({
+    topic: c.dataset.topic,
+    description: c.dataset.description || ''
+  })).filter(t => t.topic);
 
-    // Collect topics from active zone
-    const topicCards = document.querySelectorAll('#active-topics-zone .active-item-card');
-    // A2A-48: uses dataset.topic for BOTH topics and goals (NOT dataset.objective)
-    // because parseTopicObjects() in dashboard.js:160 only reads entry.topic.
-    // The semantic distinction (objective vs topic) is UI-only; storage layer
-    // uses {topic, description} uniformly for both types.
-    const topics = Array.from(topicCards).map(c => c.dataset.topic).filter(Boolean);
-    const manifestTopics = Array.from(topicCards).map(c => ({
-      topic: c.dataset.topic,
-      description: c.dataset.description || ''
-    })).filter(t => t.topic);
+  const goalCards = document.querySelectorAll('#active-goals-zone .active-item-card');
+  const goals = Array.from(goalCards).map(c => c.dataset.topic).filter(Boolean);
+  const manifestObjectives = Array.from(goalCards).map(c => ({
+    topic: c.dataset.topic,
+    description: c.dataset.description || ''
+  })).filter(g => g.topic);
 
-    // Collect goals from active zone
-    const goalCards = document.querySelectorAll('#active-goals-zone .active-item-card');
-    const goals = Array.from(goalCards).map(c => c.dataset.topic).filter(Boolean);
-    const manifestObjectives = Array.from(goalCards).map(c => ({
-      topic: c.dataset.topic,
-      description: c.dataset.description || ''
-    })).filter(g => g.topic);
-
-    const body = { allowed_tools, topics, goals, manifest: { topics: manifestTopics, objectives: manifestObjectives } };
-    // A2A-48: Refresh state inside try block so that a failed PUT does not
-    // trigger an unhandled rejection from the subsequent GET.
-    try {
-      await request(`/settings/tiers/${encodeURIComponent(tierId)}`, {
-        method: 'PUT', body: JSON.stringify(body)
-      });
-      showNotice('Saved');
-      // Refresh state from server to stay in sync after auto-save
-      const payload = await request('/settings');
-      state.settings = payload;
-    } catch (err) {
-      showNotice(`Save failed: ${err.message}`);
+  return {
+    allowed_tools,
+    topics,
+    goals,
+    manifest: {
+      topics: manifestTopics,
+      objectives: manifestObjectives
     }
+  };
+}
+
+// A2A-61: Build a tier view using live DOM state so sidebar active badges
+// stay accurate immediately after create/drop/delete (before round-trip save).
+function getTierSnapshotFromDom() {
+  const tierId = state.activeTierId;
+  const tier = (state.settings?.tiers || []).find(t => t.id === tierId);
+  if (!tier) return null;
+  const payload = collectTierPayloadFromDom();
+  return {
+    ...tier,
+    allowed_tools: payload.allowed_tools,
+    topics: payload.topics,
+    goals: payload.goals,
+    manifest: {
+      ...(tier.manifest || {}),
+      topics: payload.manifest.topics,
+      objectives: payload.manifest.objectives
+    }
+  };
+}
+
+function renderSidebarListsFromDom() {
+  const snapshot = getTierSnapshotFromDom();
+  if (snapshot) renderSidebarLists(snapshot);
+}
+
+// A2A-61: Debounced auto-save with per-tier queueing.
+// Snapshot is captured at mutation time; timer only controls network cadence.
+let _autoSaveTimer = null;
+const _pendingTierSaves = new Map();
+let _tierSaveQueue = [];
+let _tierSaveInFlight = false;
+
+function hasPendingTierSaves() {
+  return Boolean(_autoSaveTimer) || _tierSaveInFlight || _tierSaveQueue.length > 0 || _pendingTierSaves.size > 0;
+}
+
+function queueTierSave(tierId, payload) {
+  if (!tierId || !payload) return;
+  if (!_pendingTierSaves.has(tierId)) {
+    _tierSaveQueue.push(tierId);
+  }
+  _pendingTierSaves.set(tierId, payload);
+}
+
+async function flushTierSaveQueue() {
+  if (_tierSaveInFlight) return;
+  _tierSaveInFlight = true;
+
+  try {
+    while (_tierSaveQueue.length > 0) {
+      const tierId = _tierSaveQueue.shift();
+      const body = _pendingTierSaves.get(tierId);
+      _pendingTierSaves.delete(tierId);
+      if (!tierId || !body) continue;
+
+      try {
+        await request(`/settings/tiers/${encodeURIComponent(tierId)}`, {
+          method: 'PUT',
+          body: JSON.stringify(body)
+        });
+        showNotice('Saved');
+
+        // Refresh canonical settings after each successful save so future
+        // renders and sidebar catalogs stay in sync with persisted state.
+        const payload = await request('/settings');
+        state.settings = payload;
+      } catch (err) {
+        showNotice(`Save failed: ${err.message}`);
+      }
+    }
+  } finally {
+    _tierSaveInFlight = false;
+    if (_tierSaveQueue.length > 0) {
+      flushTierSaveQueue().catch(() => {});
+    }
+  }
+}
+
+function autoSaveTier(snapshotPayload = null) {
+  const tierId = state.activeTierId;
+  if (!tierId) return;
+
+  const payload = snapshotPayload || collectTierPayloadFromDom();
+  queueTierSave(tierId, payload);
+
+  clearTimeout(_autoSaveTimer);
+  _autoSaveTimer = setTimeout(() => {
+    _autoSaveTimer = null;
+    flushTierSaveQueue().catch(() => {});
   }, 250);
 }
 
@@ -1486,13 +1571,24 @@ function autoSaveTier() {
 function handleZoneDrop(zone, e) {
   e.preventDefault();
   zone.classList.remove('drag-over');
+
   let data;
   try { data = JSON.parse(e.dataTransfer.getData('application/json')); } catch { return; }
-  if (!data.name) return;
 
-  // A2A-50: Route to correct zone by data.type, NOT by which zone received
-  // the drop. Falls back to zone.id routing if data.type is missing (defensive).
-  const itemType = data.type || (zone.id === 'active-topics-zone' ? 'topic' : 'goal');
+  const name = String(data?.name || '').trim();
+  if (!name) return;
+
+  // A2A-61: strict payload validation. Unknown explicit types are rejected
+  // instead of silently defaulting into the goals column.
+  let itemType = null;
+  if (data.type === 'topic' || data.type === 'goal') {
+    itemType = data.type;
+  } else if (!data.type) {
+    itemType = zone.id === 'active-topics-zone' ? 'topic' : 'goal';
+  } else {
+    return;
+  }
+
   const targetZoneId = itemType === 'topic' ? 'active-topics-zone' : 'active-goals-zone';
   const targetZone = document.getElementById(targetZoneId);
   if (!targetZone) return;
@@ -1504,24 +1600,18 @@ function handleZoneDrop(zone, e) {
   // Check if already in target zone
   const existing = targetZone.querySelectorAll('.active-item-card');
   for (const card of existing) {
-    if (card.dataset.topic === data.name) return; // already active
+    if (card.dataset.topic === name) return;
   }
 
   // A2A-50: Shared helper builds the card HTML to avoid duplication with
   // the create-item-submit handler. Both paths now use buildItemCard().
-  const card = buildItemCard(data.name, data.description || '', accentClass, typeLabel, removeAttr);
+  const card = buildItemCard(name, String(data.description || ''), accentClass, typeLabel, removeAttr);
   const placeholder = targetZone.querySelector('.drop-placeholder');
-  targetZone.insertBefore(card, placeholder);
-  autoSaveTier();
+  if (placeholder) targetZone.insertBefore(card, placeholder);
+  else targetZone.appendChild(card);
 
-  // A2A-48: Re-fetch tier from state instead of using captured reference,
-  // since autoSaveTier() may refresh state.settings asynchronously.
-  setTimeout(() => {
-    const freshTier = (state.settings?.tiers || []).find(t => t.id === state.activeTierId);
-    if (freshTier) {
-      renderSidebarLists(freshTier);
-    }
-  }, 300);
+  autoSaveTier();
+  renderSidebarListsFromDom();
 }
 
 // A2A-50: Shared helper to build an active-item card DOM element.
@@ -1791,10 +1881,28 @@ function bindPermissionsActions() {
   [topicZone, goalZone].forEach(zone => {
     if (!zone) return;
     let dragCounter = 0;
-    zone.addEventListener('dragenter', (e) => { e.preventDefault(); dragCounter++; zone.classList.add('drag-over'); });
+    const clearZoneDragState = () => {
+      dragCounter = 0;
+      zone.classList.remove('drag-over');
+    };
+
+    zone.addEventListener('dragenter', (e) => {
+      e.preventDefault();
+      dragCounter += 1;
+      zone.classList.add('drag-over');
+    });
     zone.addEventListener('dragover', (e) => { e.preventDefault(); });
-    zone.addEventListener('dragleave', () => { dragCounter--; if (dragCounter === 0) zone.classList.remove('drag-over'); });
-    zone.addEventListener('drop', (e) => { dragCounter = 0; handleZoneDrop(zone, e); });
+    zone.addEventListener('dragleave', () => {
+      dragCounter = Math.max(0, dragCounter - 1);
+      if (dragCounter <= 0) zone.classList.remove('drag-over');
+    });
+    zone.addEventListener('drop', (e) => {
+      clearZoneDragState();
+      handleZoneDrop(zone, e);
+    });
+
+    // A2A-61: Ensure highlight never gets stuck if drag ends outside zone.
+    window.addEventListener('dragend', clearZoneDragState);
   });
 
   // A2A-61: Delegated drag listeners on .perm-sidebar — survives innerHTML
@@ -1809,12 +1917,13 @@ function bindPermissionsActions() {
       const itemType = item.dataset.itemType || 'topic';
       const name = item.dataset.sidebarTopic || item.dataset.sidebarGoal || '';
       const desc = item.dataset.description || '';
+      e.dataTransfer.effectAllowed = 'move';
       e.dataTransfer.setData('application/json', JSON.stringify({ name, description: desc, type: itemType }));
-      item.style.opacity = '0.5';
+      item.classList.add('dragging');
     });
     sidebar.addEventListener('dragend', (e) => {
       const item = e.target.closest('.sidebar-item[draggable="true"]');
-      if (item) item.style.opacity = '';
+      if (item) item.classList.remove('dragging');
     });
   }
 
@@ -1852,6 +1961,16 @@ function bindPermissionsActions() {
     const typeLabel = type === 'topic' ? 'Topic' : 'Goal';
     const removeAttr = type === 'topic' ? 'data-remove-topic' : 'data-remove-goal';
 
+    // A2A-61: Match drop-path dedupe behavior for create flow.
+    const existing = zone.querySelectorAll('.active-item-card');
+    for (const existingCard of existing) {
+      if (existingCard.dataset.topic === title) {
+        dialog.hide();
+        showNotice(`Already active: ${title}`);
+        return;
+      }
+    }
+
     const card = buildItemCard(title, desc, accentClass, typeLabel, removeAttr);
     const placeholder = zone.querySelector('.drop-placeholder');
     if (placeholder) zone.insertBefore(card, placeholder);
@@ -1859,6 +1978,7 @@ function bindPermissionsActions() {
 
     dialog.hide();
     autoSaveTier();
+    renderSidebarListsFromDom();
   });
 
   // A2A-48: Create Item dialog — cancel handler
@@ -1915,6 +2035,7 @@ function bindPermissionsActions() {
     }
     dialog.hide();
     autoSaveTier();
+    renderSidebarListsFromDom();
   });
 
   // A2A-50: Delete confirm dialog — cancel handler
@@ -2310,9 +2431,12 @@ const tabLoaders = {
   contacts: loadContacts,
   calls: loadCalls,
   logs: () => { loadLogs(); loadLogStats(); },
-  // A2A-48: Load fresh settings data when switching to Permissions tab.
-  // Previously a no-op — now ensures data is current on tab switch.
-  permissions: loadSettings,
+  // A2A-48/A2A-61: Load fresh settings data when switching to Permissions,
+  // but skip polling refresh while local drag/create/delete saves are pending.
+  permissions: () => {
+    if (hasPendingTierSaves()) return Promise.resolve();
+    return loadSettings();
+  },
   invites: loadInvites,
   health: loadHealth,
   // A2A-50: Settings tab loads dashboard status, auto-update, and callbook data

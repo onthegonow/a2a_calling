@@ -981,6 +981,10 @@ table tbody tr:hover td {
   border-color: rgba(255, 255, 255, 0.18);
 }
 
+.sidebar-item.dragging {
+  opacity: 0.5;
+}
+
 /* A2A-48: Active items in the sidebar are dimmed with dashed border and
    non-draggable to indicate they are already in the active zone. */
 .sidebar-item.active-in-zone {
