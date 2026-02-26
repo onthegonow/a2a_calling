@@ -66,6 +66,7 @@ All modules use CommonJS (`require`/`module.exports`). Each lib file exports a f
 - Dark theme is the default; uses CSS custom properties for theming
 - Sidebar navigation with tab switching (Contacts, Calls, Invites, Logs, Settings, Permissions, Health)
 - Permissions tab uses tier cards with tool toggles and auto-save
+- Drag-and-drop uses event delegation on stable parent containers (`.perm-sidebar` for sidebar items, zone containers for drop targets) — do NOT bind listeners directly to innerHTML-generated elements (A2A-61)
 
 ## Network Resilience (A2A-54)
 
