@@ -57,6 +57,10 @@ function getCallMonitor(options = {}) {
 // For production: use Redis or persistent store
 const rateLimits = new Map();
 
+// Rate limit eviction constants
+const RATE_LIMIT_MAX_ENTRIES = 1000;
+const RATE_LIMIT_STALE_MS = 24 * 60 * 60 * 1000; // 24 hours
+
 // Constants
 const MAX_MESSAGE_LENGTH = 10000;  // 10KB max message
 const MAX_TIMEOUT_SECONDS = 300;   // 5 min max timeout
@@ -104,6 +108,20 @@ function normalizeRequestMetadata(req) {
   };
 }
 
+/**
+ * Timing-safe comparison of two token strings.
+ * Returns true if tokens match, false otherwise.
+ * Short-circuits (non-timing-safe) only when a value is missing or empty,
+ * which is acceptable since the absence of a token is not secret.
+ */
+function timingSafeTokenEqual(a, b) {
+  if (!a || !b) return false;
+  const bufA = Buffer.from(String(a));
+  const bufB = Buffer.from(String(b));
+  if (bufA.length !== bufB.length) return false;
+  return crypto.timingSafeEqual(bufA, bufB);
+}
+
 function checkRateLimit(tokenId, limits = { minute: 10, hour: 100, day: 1000 }) {
   const now = Date.now();
   const minute = Math.floor(now / 60000);
@@ -140,6 +158,34 @@ function checkRateLimit(tokenId, limits = { minute: 10, hour: 100, day: 1000 }) 
   state.minute.count++;
   state.hour.count++;
   state.day.count++;
+
+  // Evict stale entries when the Map exceeds the size threshold
+  if (rateLimits.size > RATE_LIMIT_MAX_ENTRIES) {
+    const staleThreshold = now - RATE_LIMIT_STALE_MS;
+    let evicted = 0;
+    for (const [key, entry] of rateLimits) {
+      // An entry is stale if all three bucket timestamps are older than 24h
+      const latestBucket = Math.max(
+        entry.minute.bucket * 60000,
+        entry.hour.bucket * 3600000,
+        entry.day.bucket * 86400000
+      );
+      if (latestBucket < staleThreshold) {
+        rateLimits.delete(key);
+        evicted++;
+      }
+    }
+    // If no stale entries found, evict the oldest (first-inserted) entries
+    if (evicted === 0) {
+      const excess = rateLimits.size - RATE_LIMIT_MAX_ENTRIES;
+      let removed = 0;
+      for (const key of rateLimits.keys()) {
+        if (removed >= excess) break;
+        rateLimits.delete(key);
+        removed++;
+      }
+    }
+  }
 
   return { limited: false };
 }
@@ -758,7 +804,7 @@ function createRoutes(options = {}) {
           message: 'Set A2A_ADMIN_TOKEN to access conversation admin routes from non-local addresses'
         });
       }
-      if (adminToken !== expected) {
+      if (!timingSafeTokenEqual(adminToken, expected)) {
         return res.status(401).json({ error: 'unauthorized' });
       }
     }
@@ -773,7 +819,7 @@ function createRoutes(options = {}) {
     const conversations = convStore.listConversations({
       contactId: contact_id,
       status,
-      limit: parseInt(limit),
+      limit: Math.min(100, Math.max(1, Number.parseInt(String(limit), 10) || 20)),
       includeMessages: false
     });
 
@@ -794,7 +840,7 @@ function createRoutes(options = {}) {
           message: 'Set A2A_ADMIN_TOKEN to access conversation admin routes from non-local addresses'
         });
       }
-      if (adminToken !== expected) {
+      if (!timingSafeTokenEqual(adminToken, expected)) {
         return res.status(401).json({ error: 'unauthorized' });
       }
     }
@@ -806,8 +852,8 @@ function createRoutes(options = {}) {
 
     const { recent_messages = 10 } = req.query;
     const context = convStore.getConversationContext(
-      req.params.id, 
-      parseInt(recent_messages)
+      req.params.id,
+      Math.min(50, Math.max(1, Number.parseInt(String(recent_messages), 10) || 10))
     );
 
     if (!context) {
@@ -830,4 +876,11 @@ async function defaultMessageHandler(message, context, options) {
   };
 }
 
-module.exports = { createRoutes, checkRateLimit };
+module.exports = {
+  createRoutes,
+  checkRateLimit,
+  timingSafeTokenEqual,
+  // Exposed for testing only
+  _rateLimits: rateLimits,
+  _RATE_LIMIT_MAX_ENTRIES: RATE_LIMIT_MAX_ENTRIES
+};
