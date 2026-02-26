@@ -27,6 +27,7 @@ const { buildUnifiedSummaryPrompt } = require('./lib/summary-prompt');
 const { A2AConfig } = require('./lib/config');
 const { UpdateManager } = require('./lib/update-manager');
 const { DashboardEventStore } = require('./lib/dashboard-events');
+const { CallbookStore } = require('./lib/callbook');
 const { spawn } = require('child_process');
 const { resolveTurnTimeoutMs } = require('./lib/turn-timeout');
 
@@ -69,6 +70,8 @@ const agentContext = loadAgentContext();
 const tokenStore = new TokenStore();
 const config = new A2AConfig();
 const eventStore = new DashboardEventStore(tokenStore.configDir);
+// A2A-59: Hoist CallbookStore to server.js so shutdown() can close it
+const callbookStore = new CallbookStore(tokenStore.configDir);
 const runtime = createRuntimeAdapter({
   workspaceDir,
   agentContext,
@@ -878,6 +881,7 @@ app.use('/api/a2a/dashboard', createDashboardApiRouter({
   agentContext,
   config,
   eventStore,
+  callbookStore,
   getUpdateManager: () => updateManager,
   logger: logger.child({ component: 'a2a.dashboard' })
 }));
@@ -1081,6 +1085,8 @@ async function startServer() {
       try { serverConvStore.close(); } catch (_) {}
     }
     try { eventStore.close(); } catch (_) {}
+    // A2A-59: Close CallbookStore to flush WAL on shutdown
+    try { callbookStore.close(); } catch (_) {}
     try { closeAllLoggerStores(); } catch (_) {}
     server.close(() => process.exit(0));
     // Force exit after 5s if connections won't close
