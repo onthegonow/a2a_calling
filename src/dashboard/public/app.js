@@ -1307,7 +1307,6 @@ function renderPermissions() {
   renderTierWarnings(tier);
   renderSidebarPreview(state.activeTierId);
   renderSidebarLists(tier);
-  bindSidebarDrag();
 }
 
 // A2A-48: Renders the inline "Preview as Caller" card in the right sidebar.
@@ -1479,22 +1478,6 @@ function autoSaveTier() {
   }, 250);
 }
 
-// A2A-48: Binds dragstart/dragend on sidebar items (re-created each render).
-// Zone listeners (dragover/dragleave/drop) are bound ONCE in
-// bindPermissionsActions() to avoid listener accumulation — the zone
-// containers persist across renders while only their innerHTML changes.
-function bindSidebarDrag() {
-  document.querySelectorAll('.sidebar-item[draggable="true"]').forEach(item => {
-    item.addEventListener('dragstart', (e) => {
-      const itemType = item.dataset.itemType || 'topic';
-      const name = item.dataset.sidebarTopic || item.dataset.sidebarGoal || '';
-      const desc = item.dataset.description || '';
-      e.dataTransfer.setData('application/json', JSON.stringify({ name, description: desc, type: itemType }));
-      item.style.opacity = '0.5';
-    });
-    item.addEventListener('dragend', () => { item.style.opacity = ''; });
-  });
-}
 
 // A2A-50: Drop handler for active topic/goal zones. Routes items to the
 // CORRECT zone based on data.type (not the zone they were dropped on).
@@ -1537,9 +1520,6 @@ function handleZoneDrop(zone, e) {
     const freshTier = (state.settings?.tiers || []).find(t => t.id === state.activeTierId);
     if (freshTier) {
       renderSidebarLists(freshTier);
-      // A2A-51: Re-bind drag listeners after innerHTML replacement in renderSidebarLists().
-      // Without this, sidebar items lose dragstart/dragend handlers after the first drop.
-      bindSidebarDrag();
     }
   }, 300);
 }
@@ -1803,7 +1783,7 @@ function bindPermissionsActions() {
   // A2A-48: Drop zone listeners — bound ONCE here because the zone containers
   // (#active-topics-zone, #active-goals-zone) persist across renders. Only
   // their innerHTML is replaced by renderActiveTopics/renderActiveGoals.
-  // Binding in bindSidebarDrag() would cause listener accumulation.
+  // Binding per-element would cause listener accumulation.
   // A2A-51: Uses dragenter/dragleave counter to prevent flickering when
   // cursor moves over child elements (cards, placeholder) inside the zone.
   const topicZone = document.getElementById('active-topics-zone');
@@ -1816,6 +1796,27 @@ function bindPermissionsActions() {
     zone.addEventListener('dragleave', () => { dragCounter--; if (dragCounter === 0) zone.classList.remove('drag-over'); });
     zone.addEventListener('drop', (e) => { dragCounter = 0; handleZoneDrop(zone, e); });
   });
+
+  // A2A-61: Delegated drag listeners on .perm-sidebar — survives innerHTML
+  // rewrites in renderSidebarLists(). Replaces bindSidebarDrag() which bound
+  // directly to elements destroyed on each render, causing the drag-drop
+  // regression in A2A-41/48/50/51.
+  const sidebar = document.querySelector('.perm-sidebar');
+  if (sidebar) {
+    sidebar.addEventListener('dragstart', (e) => {
+      const item = e.target.closest('.sidebar-item[draggable="true"]');
+      if (!item) return;
+      const itemType = item.dataset.itemType || 'topic';
+      const name = item.dataset.sidebarTopic || item.dataset.sidebarGoal || '';
+      const desc = item.dataset.description || '';
+      e.dataTransfer.setData('application/json', JSON.stringify({ name, description: desc, type: itemType }));
+      item.style.opacity = '0.5';
+    });
+    sidebar.addEventListener('dragend', (e) => {
+      const item = e.target.closest('.sidebar-item[draggable="true"]');
+      if (item) item.style.opacity = '';
+    });
+  }
 
   // A2A-48: Tool toggle change — auto-save and update card styling
   panel.addEventListener('change', (e) => {
