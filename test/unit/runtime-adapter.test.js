@@ -179,6 +179,26 @@ module.exports = function (test, assert) {
     });
   });
 
+  test('test mode runTurn throws when A2A_AGENT_COMMAND exits non-zero', async () => {
+    await withEnv({ A2A_RUNTIME: 'test', A2A_AGENT_COMMAND: 'exit 1' }, async () => {
+      const { createRuntimeAdapter } = loadAdapterModule();
+      const runtime = createRuntimeAdapter({ workspaceDir: process.cwd() });
+      let threw = false;
+      try {
+        await runtime.runTurn({
+          sessionId: 'test-session',
+          message: 'Hello',
+          caller: { name: 'tester' },
+          context: {}
+        });
+      } catch (err) {
+        threw = true;
+        assert.includes(err.message, 'exited with code');
+      }
+      assert.ok(threw, 'should throw on non-zero exit');
+    });
+  });
+
   test('test mode summarize returns canned summary', async () => {
     await withEnv({ A2A_RUNTIME: 'test' }, async () => {
       const { createRuntimeAdapter } = loadAdapterModule();

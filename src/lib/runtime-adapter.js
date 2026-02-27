@@ -387,14 +387,16 @@ function createRuntimeAdapter(options = {}) {
     }
 
     // A2A-66: test runtime — spawn A2A_AGENT_COMMAND if set, otherwise echo.
+    // Uses shell: true so the command string is parsed by the shell (supports
+    // quoted args, paths with spaces, pipes, etc.).
     if (modeInfo.mode === 'test') {
       const agentCommand = process.env.A2A_AGENT_COMMAND;
       if (agentCommand) {
         const payload = JSON.stringify({ message, caller, context });
-        const parts = agentCommand.split(/\s+/);
-        const result = spawnSync(parts[0], parts.slice(1), {
+        const result = spawnSync(agentCommand, {
           input: payload,
           encoding: 'utf8',
+          shell: true,
           timeout: (timeoutMs || 65000) + 5000,
           maxBuffer: 1024 * 1024,
           cwd: workspaceDir,
@@ -403,8 +405,15 @@ function createRuntimeAdapter(options = {}) {
         if (result.error) {
           throw result.error;
         }
-        const output = String(result.stdout || '').trim();
-        return output || '[test-runtime] Empty command output';
+        // A2A-66: check exit code — non-zero means the bridge command failed.
+        if (result.status !== 0) {
+          const stderr = String(result.stderr || '').trim();
+          throw new Error(
+            `A2A_AGENT_COMMAND exited with code ${result.status}` +
+            (stderr ? `: ${stderr.slice(0, 200)}` : '')
+          );
+        }
+        return String(result.stdout || '').trim() || '[test-runtime] Empty command output';
       }
       const snippet = cleanText(message || prompt || '', 120);
       return `[test-runtime] Echo: ${snippet}`;
