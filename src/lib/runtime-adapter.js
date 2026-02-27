@@ -152,6 +152,11 @@ function normalizeOpenClawOutput(raw) {
 }
 
 
+function readPositiveIntEnv(name, fallback) {
+  const parsed = Number.parseInt(process.env[name] || '', 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
 function createRuntimeAdapter(options = {}) {
   const workspaceDir = options.workspaceDir || process.cwd();
   const modeInfo = resolveRuntimeMode();
@@ -172,12 +177,42 @@ function createRuntimeAdapter(options = {}) {
   // Design decision (A2A-29): we keep per-conversation state for prompt/metadata
   // continuity, but Claude execution itself is stateless (no `--resume`).
   const claudeSessions = new Map();
+  const CLAUDE_SESSION_TTL_MS = readPositiveIntEnv('A2A_CLAUDE_SESSION_TTL_MS', 6 * 60 * 60 * 1000);
+  const MAX_CLAUDE_SESSIONS = readPositiveIntEnv('A2A_CLAUDE_MAX_SESSIONS', 500);
+
+  // A2A-69: TTL-based pruning for Claude session state.
+  // Follows the same pattern as pruneCollaborationSessions() in server.js:
+  // 1. Evict entries older than TTL
+  // 2. If still over max, evict oldest-first
+  function pruneClaudeSessions() {
+    const now = Date.now();
+    for (const [id, session] of claudeSessions.entries()) {
+      const updatedAt = Number(session?.updatedAt || 0);
+      if (!updatedAt || now - updatedAt > CLAUDE_SESSION_TTL_MS) {
+        claudeSessions.delete(id);
+      }
+    }
+
+    if (claudeSessions.size <= MAX_CLAUDE_SESSIONS) {
+      return;
+    }
+
+    const oldest = Array.from(claudeSessions.entries())
+      .sort((a, b) => (a[1]?.updatedAt || 0) - (b[1]?.updatedAt || 0));
+    const toDelete = claudeSessions.size - MAX_CLAUDE_SESSIONS;
+    for (let i = 0; i < toDelete; i++) {
+      claudeSessions.delete(oldest[i][0]);
+    }
+  }
 
   async function runClaudeTurnAdapter({ sessionId, message, caller, context, timeoutMs }) {
     const traceId = context?.traceId || context?.trace_id;
     const requestId = context?.requestId || context?.request_id;
     const conversationId = context?.conversationId || context?.conversation_id;
     const startAt = Date.now();
+
+    // A2A-69: prune stale sessions before accessing/creating state
+    pruneClaudeSessions();
 
     // Get or create session state
     let session = claudeSessions.get(sessionId);
@@ -191,6 +226,7 @@ function createRuntimeAdapter(options = {}) {
         systemPrompt: '',
         turnCount: 0,
         lastMeta: null,
+        updatedAt: Date.now(),
         // Keep a permission snapshot so summary runs with the same policy envelope.
         permissionSnapshot: {
           capabilities: Array.isArray(context?.capabilities) ? context.capabilities : [],
@@ -227,6 +263,7 @@ function createRuntimeAdapter(options = {}) {
       claudeSessions.set(sessionId, session);
     }
 
+    session.updatedAt = Date.now();
     session.turnCount++;
 
     logger.debug('Invoking Claude subagent turn', {
@@ -651,7 +688,10 @@ function createRuntimeAdapter(options = {}) {
     runTurn,
     summarize,
     notify,
-    getLastTurnMeta
+    getLastTurnMeta,
+    // A2A-69: exposed for testing
+    _claudeSessions: claudeSessions,
+    _pruneClaudeSessions: pruneClaudeSessions
   };
 }
 
