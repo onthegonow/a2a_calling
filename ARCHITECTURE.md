@@ -12,9 +12,9 @@ A2A Calling enables agent-to-agent communication across OpenClaw instances. Agen
             │
 ┌───────────▼──────────────────────────────────────────────────────┐
 │  Express Server (src/server.js)                                   │
-│  ├─ /api/a2a/*      → src/routes/a2a.js (inbound calls, tokens)  │
-│  ├─ /api/callbook/* → src/routes/callbook.js (callbook sync)     │
-│  └─ /dashboard/*    → src/routes/dashboard.js (API + SPA)        │
+│  ├─ /api/a2a/*          → src/routes/a2a.js (inbound calls, tokens)   │
+│  ├─ /api/a2a/callbook/* → src/routes/callbook.js (callbook pairing)   │
+│  └─ /api/a2a/dashboard/* + /dashboard/* → src/routes/dashboard.js      │
 └───────────┬──────────────────────────────────────────────────────┘
             │
 ┌───────────▼──────────────────────────────────────────────────────┐
@@ -86,7 +86,7 @@ Only two runtime dependencies (intentionally minimal):
 
 ## Dashboard
 
-Single-page app served from `src/dashboard/public/`. Uses Shoelace web components. Communicates with the API via `/dashboard/api/*` routes. Includes tabs: Contacts, Calls, Logs, Settings, Invites, Permissions, and Health (E2E test results).
+Single-page app served from `src/dashboard/public/`. Uses Shoelace web components. Communicates with the API via `/api/a2a/dashboard/*` routes. UI is served at both `/api/a2a/dashboard/*` and legacy `/dashboard/*` mounts. Includes panels: Contacts, Calls, Permissions, Invites, Logs, Health (E2E test results), and Settings.
 
 ## Native macOS App
 

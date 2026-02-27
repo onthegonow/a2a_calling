@@ -61,10 +61,10 @@ All modules use CommonJS (`require`/`module.exports`). Each lib file exports a f
 
 - Single-page app in `src/dashboard/public/`
 - Uses Shoelace web components (`<sl-*>` elements)
-- Communicates via fetch to `/dashboard/api/*` endpoints
+- Communicates via fetch to `/api/a2a/dashboard/*` endpoints
 - SSE for real-time updates via `src/lib/dashboard-events.js`
 - Dark theme is the default; uses CSS custom properties for theming
-- Sidebar navigation with tab switching (Contacts, Calls, Invites, Logs, Settings, Permissions, Health)
+- Sidebar navigation with panel switching (Contacts, Calls, Permissions, Invites, Logs, Health, Settings)
 - Permissions tab uses tier cards with tool toggles and auto-save
 - Drag-and-drop uses event delegation on stable parent containers (`.perm-sidebar` for sidebar items, zone containers for drop targets) — do NOT bind listeners directly to innerHTML-generated elements (A2A-61)
 
@@ -109,7 +109,7 @@ Tokens have a tier (`public`, `friends`, `family`) and a disclosure level (`publ
 
 ## Local Request Detection (A2A-73)
 
-Use `isLocalRequest(req)` from `src/lib/local-request.js` for all admin/dashboard auth checks. This is proxy-aware — it checks both the request IP and proxy headers. Do NOT use raw `req.ip` comparison behind reverse proxies. The module also exports `isLoopbackAddress(ip)` for IP-only checks.
+Use `isDirectLocalRequest(req)` from `src/lib/local-request.js` for admin/dashboard local-only checks. This helper validates loopback socket origin, localhost Host header, and absence of proxy-forwarding headers. Do NOT use raw `req.ip` comparison behind reverse proxies. The module also exports `isLoopbackAddress(ip)` for IP-only checks.
 
 ## Route Hardening (A2A-53)
 
