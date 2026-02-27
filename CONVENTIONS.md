@@ -107,6 +107,10 @@ close() {
 
 Tokens have a tier (`public`, `friends`, `family`) and a disclosure level (`public`, `minimal`, `none`). These are enforced at the route level in `src/routes/a2a.js`.
 
+## Local Request Detection (A2A-73)
+
+Use `isLocalRequest(req)` from `src/lib/local-request.js` for all admin/dashboard auth checks. This is proxy-aware — it checks both the request IP and proxy headers. Do NOT use raw `req.ip` comparison behind reverse proxies. The module also exports `isLoopbackAddress(ip)` for IP-only checks.
+
 ## Route Hardening (A2A-53)
 
 - Rate limit Map has eviction: entries are swept when Map exceeds 1000 entries (stale >24h first, then oldest by insertion order)

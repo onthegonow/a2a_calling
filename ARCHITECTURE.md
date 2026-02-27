@@ -42,6 +42,7 @@ A2A Calling enables agent-to-agent communication across OpenClaw instances. Agen
 │  ├─ port-scanner.js   Available port detection                    │
 │  ├─ pid-file.js       PID file management                         │
 │  ├─ turn-timeout.js   Conversation turn timeout handling          │
+│  ├─ local-request.js  Proxy-aware local request detection (A2A-73) │
 │  ├─ update-checker.js Version update detection                    │
 │  └─ update-manager.js Self-update orchestration                   │
 └──────────────────────────────────────────────────────────────────┘
@@ -50,8 +51,8 @@ A2A Calling enables agent-to-agent communication across OpenClaw instances. Agen
 ## Data Storage
 
 - **Tokens**: JSON file at `~/.config/openclaw/a2a.json`
-- **Conversations**: SQLite via `better-sqlite3` at `~/.config/openclaw/a2a-conversations.db`
-- **Logs**: SQLite via `better-sqlite3` at `~/.config/openclaw/a2a-logs.db`
+- **Conversations**: SQLite via `better-sqlite3` at `~/.config/openclaw/a2a-conversations.db` (WAL mode, A2A-71)
+- **Logs**: SQLite via `better-sqlite3` at `~/.config/openclaw/a2a-logs.db` (WAL mode, A2A-71)
 - **Config**: JSON at `~/.config/openclaw/a2a-config.json`
 - **Disclosure**: JSON at `~/.config/openclaw/a2a-disclosure.json`
 
