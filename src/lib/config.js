@@ -246,7 +246,15 @@ const DEFAULT_CONFIG = {
     allowMajor: false,
     lastGoodVersion: null
   },
-  
+
+  // A2A-63: Retention policy defaults for database lifecycle management
+  retention: {
+    conversations_days: 90,
+    logs_days: 30,
+    compress_after_days: 7,
+    token_expiry_grace_days: 30
+  },
+
   // Timestamps
   createdAt: null,
   updatedAt: null
@@ -440,6 +448,22 @@ class A2AConfig {
     this.config.auto_update = next;
     this._save();
     return next;
+  }
+
+  // A2A-63: Retention config accessor — returns merged defaults when
+  // the retention section is missing or partially present in the config file.
+  // Does NOT write defaults to disk automatically.
+  getRetention() {
+    const defaults = DEFAULT_CONFIG.retention;
+    const current = (this.config && typeof this.config.retention === 'object' && this.config.retention)
+      ? this.config.retention
+      : {};
+    return {
+      conversations_days: Number.isFinite(current.conversations_days) ? current.conversations_days : defaults.conversations_days,
+      logs_days: Number.isFinite(current.logs_days) ? current.logs_days : defaults.logs_days,
+      compress_after_days: Number.isFinite(current.compress_after_days) ? current.compress_after_days : defaults.compress_after_days,
+      token_expiry_grace_days: Number.isFinite(current.token_expiry_grace_days) ? current.token_expiry_grace_days : defaults.token_expiry_grace_days
+    };
   }
 
   // Export for sharing (strips private_key to prevent leakage — A2A-52)
