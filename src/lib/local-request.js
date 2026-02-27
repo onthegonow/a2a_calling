@@ -19,6 +19,8 @@ function isLoopbackAddress(ip) {
   if (ip === '::1' || ip === '127.0.0.1' || ip === '::ffff:127.0.0.1') {
     return true;
   }
+  // Full 127.0.0.0/8 range is loopback in IPv4
+  if (ip.startsWith('127.')) return true;
   return ip.startsWith('::ffff:127.');
 }
 
@@ -38,11 +40,15 @@ function isDirectLocalRequest(req) {
   const ip = (req && req.socket && req.socket.remoteAddress) ? req.socket.remoteAddress : req.ip;
   if (!isLoopbackAddress(ip)) return false;
 
-  const host = String(req.headers.host || '').toLowerCase();
-  const isLocalHost = host.startsWith('localhost') ||
-    host.startsWith('127.0.0.1') ||
-    host.startsWith('[::1]') ||
-    host.startsWith('::1');
+  const rawHost = String(req.headers.host || '').toLowerCase();
+  // Strip port suffix to get the bare hostname for exact matching.
+  // This prevents DNS rebinding via e.g. localhost.evil.com or 127.0.0.1.nip.io.
+  // Negative lookbehind avoids stripping `:1` from bare IPv6 `::1`.
+  const hostname = rawHost.replace(/(?<!:):\d+$/, '');
+  const isLocalHost = hostname === 'localhost' ||
+    hostname === '127.0.0.1' ||
+    hostname === '[::1]' ||
+    hostname === '::1';
   if (!isLocalHost) return false;
 
   // A2A-73: Reject requests with any proxy-forwarding header. These indicate
@@ -52,7 +58,9 @@ function isDirectLocalRequest(req) {
     req.headers['x-forwarded-proto'] ||
     req.headers['x-forwarded-host'] ||
     req.headers['cf-connecting-ip'] ||
-    req.headers['x-forwarded-by'];
+    req.headers['x-forwarded-by'] ||
+    req.headers['x-real-ip'] ||
+    req.headers['forwarded'];
   if (forwarded) return false;
 
   return true;

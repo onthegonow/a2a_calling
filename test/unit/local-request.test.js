@@ -22,6 +22,12 @@ module.exports = function (test, assert) {
     assert.equal(isLoopbackAddress('::ffff:127.0.0.1'), true);
   });
 
+  test('isLoopbackAddress returns true for full 127.0.0.0/8 range', () => {
+    assert.equal(isLoopbackAddress('127.0.0.2'), true);
+    assert.equal(isLoopbackAddress('127.1.2.3'), true);
+    assert.equal(isLoopbackAddress('127.255.255.255'), true);
+  });
+
   test('isLoopbackAddress returns true for ::ffff:127.x range', () => {
     assert.equal(isLoopbackAddress('::ffff:127.0.0.2'), true);
     assert.equal(isLoopbackAddress('::ffff:127.255.255.255'), true);
@@ -94,6 +100,24 @@ module.exports = function (test, assert) {
   test('isDirectLocalRequest rejects when x-forwarded-by present', () => {
     const req = mockReq({ headers: { 'x-forwarded-by': '10.0.0.1' } });
     assert.equal(isDirectLocalRequest(req), false);
+  });
+
+  test('isDirectLocalRequest rejects when x-real-ip present', () => {
+    const req = mockReq({ headers: { 'x-real-ip': '203.0.113.50' } });
+    assert.equal(isDirectLocalRequest(req), false);
+  });
+
+  test('isDirectLocalRequest rejects when forwarded (RFC 7239) present', () => {
+    const req = mockReq({ headers: { forwarded: 'for=203.0.113.50;proto=https' } });
+    assert.equal(isDirectLocalRequest(req), false);
+  });
+
+  test('isDirectLocalRequest rejects DNS rebinding hostnames', () => {
+    // These resolve to 127.0.0.1 but are NOT localhost — DNS rebinding attack
+    assert.equal(isDirectLocalRequest(mockReq({ host: 'localhost.evil.com' })), false);
+    assert.equal(isDirectLocalRequest(mockReq({ host: '127.0.0.1.nip.io' })), false);
+    assert.equal(isDirectLocalRequest(mockReq({ host: 'localhost.attacker.com:3001' })), false);
+    assert.equal(isDirectLocalRequest(mockReq({ host: '[::1].evil.com' })), false);
   });
 
   test('isDirectLocalRequest falls back to req.ip when socket missing', () => {
