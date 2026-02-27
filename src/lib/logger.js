@@ -161,6 +161,8 @@ class LogStore {
 
   _ensureSchema() {
     this.db.exec(`
+      PRAGMA journal_mode = WAL;
+
       CREATE TABLE IF NOT EXISTS logs (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         timestamp TEXT NOT NULL,

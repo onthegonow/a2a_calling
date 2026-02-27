@@ -156,4 +156,25 @@ module.exports = function (test, assert, helpers) {
 
     teardown(loggerModule);
   });
+
+  // ── A2A-71: WAL mode ──────────────────────────────────────
+
+  test('LoggerStore enables WAL journal mode on init', () => {
+    setup();
+    const loggerModule = loadLoggerModule();
+    const logger = loggerModule.createLogger({
+      component: 'wal-test',
+      configDir: tmp.dir,
+      stdout: false
+    });
+
+    // Trigger lazy DB initialization
+    logger.info('wal test', { event: 'wal_check' });
+
+    const store = logger.store;
+    const row = store.db.prepare('PRAGMA journal_mode').get();
+    assert.equal(row.journal_mode, 'wal');
+
+    teardown(loggerModule);
+  });
 };
