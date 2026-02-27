@@ -200,6 +200,8 @@ class LogStore {
         trace_id, conversation_id, token_id, request_id, error_code, status_code, hint, data
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
+    // A2A-64: Prepared statement for time-based retention pruning
+    this.pruneStmt = this.db.prepare('DELETE FROM logs WHERE timestamp < ?');
   }
 
   isAvailable() {
@@ -231,6 +233,19 @@ class LogStore {
         entry.hint,
         dataText
       );
+
+      // A2A-64: Auto-prune on every 1000th write (dashboard-events.js pattern).
+      // Best effort — prune failures must not affect write operations.
+      this._writeCount = (this._writeCount || 0) + 1;
+      if (this._writeCount % 1000 === 0 && !this._pruning) {
+        try {
+          const threshold = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+          this.pruneStmt.run(threshold);
+        } catch (_) {
+          // A2A-64: Best effort — silent catch like dashboard-events.js:149
+        }
+      }
+
       return true;
     } catch (err) {
       this._dbError = err.message || 'failed_to_write_log_entry';
@@ -409,6 +424,72 @@ class LogStore {
       this.db = null;
     }
   }
+
+  /**
+   * A2A-64: Delete log entries older than the retention period.
+   *
+   * @param {object} [options]
+   * @param {number} [options.days=30] - Retention period in days
+   * @returns {{ deleted: number }}
+   */
+  pruneOld(options = {}) {
+    const db = this._initDb();
+    if (!db) return { deleted: 0 };
+
+    const days = Number.isFinite(options.days) ? options.days : 30;
+    const threshold = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+
+    // A2A-64: Set _pruning flag to prevent auto-prune recursion if the
+    // cleanup logger writes back to this same store.
+    this._pruning = true;
+    let deleted = 0;
+    try {
+      const result = this.pruneStmt.run(threshold);
+      deleted = result.changes;
+
+      // A2A-64: Only VACUUM after bulk deletions (>100 rows) to avoid unnecessary I/O
+      if (deleted > 100) {
+        db.exec('VACUUM');
+      }
+    } finally {
+      this._pruning = false;
+    }
+
+    // A2A-64: Log prune results AFTER prune completes to avoid recursion.
+    // Use a Logger instance with stdout:false for the cleanup component.
+    try {
+      const cleanupLogger = new Logger(this, { component: 'a2a.cleanup', stdout: true, minLevel: 'info' });
+      cleanupLogger.info(`Pruned ${deleted} log entries older than ${days} days`, {
+        event: 'logs_pruned',
+        data: { deleted, days, threshold }
+      });
+    } catch (_) {
+      // A2A-64: Best effort — logging about prune results must not throw
+    }
+
+    return { deleted };
+  }
+
+  /**
+   * A2A-64: Return database-level stats for monitoring.
+   * Complements the existing stats() method which provides level/component breakdowns.
+   *
+   * @returns {{ total: number, oldest_entry: string|null, newest_entry: string|null }}
+   */
+  getDatabaseStats() {
+    const db = this._initDb();
+    if (!db) return { total: 0, oldest_entry: null, newest_entry: null };
+
+    const row = db.prepare(
+      'SELECT COUNT(*) AS total, MIN(timestamp) AS oldest, MAX(timestamp) AS newest FROM logs'
+    ).get();
+
+    return {
+      total: row?.total || 0,
+      oldest_entry: row?.oldest || null,
+      newest_entry: row?.newest || null
+    };
+  }
 }
 
 class Logger {
@@ -572,6 +653,7 @@ function closeAllLoggerStores() {
 
 module.exports = {
   LOG_DB_FILENAME,
+  LogStore,
   createLogger,
   createTraceId,
   closeAllLoggerStores
