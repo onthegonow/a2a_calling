@@ -20,16 +20,9 @@ const { resolveInviteHost } = require('../lib/invite-host');
 const { CallbookStore } = require('../lib/callbook');
 const { DashboardEventStore } = require('../lib/dashboard-events');
 const { createLogger } = require('../lib/logger');
+const { isDirectLocalRequest } = require('../lib/local-request');
 
 const DASHBOARD_STATIC_DIR = path.join(__dirname, '..', 'dashboard', 'public');
-
-function isLoopbackAddress(ip) {
-  if (!ip) return false;
-  if (ip === '::1' || ip === '127.0.0.1' || ip === '::ffff:127.0.0.1') {
-    return true;
-  }
-  return ip.startsWith('::ffff:127.');
-}
 
 function parseCookieHeader(headerValue) {
   const raw = String(headerValue || '').trim();
@@ -44,25 +37,6 @@ function parseCookieHeader(headerValue) {
     cookies[key] = decodeURIComponent(value);
   }
   return cookies;
-}
-
-function isDirectLocalRequest(req) {
-  const ip = (req && req.socket && req.socket.remoteAddress) ? req.socket.remoteAddress : req.ip;
-  if (!isLoopbackAddress(ip)) return false;
-  const host = String(req.headers.host || '').toLowerCase();
-  const isLocalHost = host.startsWith('localhost') ||
-    host.startsWith('127.0.0.1') ||
-    host.startsWith('[::1]') ||
-    host.startsWith('::1');
-  if (!isLocalHost) return false;
-  // Avoid treating proxy-forwarded traffic as "local".
-  const forwarded = req.headers['x-forwarded-for'] ||
-    req.headers['x-forwarded-proto'] ||
-    req.headers['x-forwarded-host'] ||
-    req.headers['cf-connecting-ip'] ||
-    req.headers['x-forwarded-by'];
-  if (forwarded) return false;
-  return true;
 }
 
 function isHttpsRequest(req) {
