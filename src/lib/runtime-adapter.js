@@ -5,8 +5,10 @@
  * - openclaw: uses `openclaw` CLI for turn handling, summaries, notifications
  * - claude: uses `claude` CLI as a real LLM subagent for conversations
  *
+ * - test: minimal runtime for CI/headless — echoes messages or spawns A2A_AGENT_COMMAND
+ *
  * Selection:
- * - A2A_RUNTIME=openclaw|claude|auto (default: auto)
+ * - A2A_RUNTIME=openclaw|claude|test|auto (default: auto)
  * - auto picks openclaw → claude → error (no supported CLI)
  */
 
@@ -42,6 +44,18 @@ function resolveRuntimeMode() {
   const requested = String(process.env.A2A_RUNTIME || 'auto').trim().toLowerCase();
   const hasOpenClaw = commandExists('openclaw');
   const hasClaude = commandExists('claude');
+
+  // A2A-66: test runtime for CI/headless environments — minimal runTurn with
+  // optional A2A_AGENT_COMMAND bridge support.
+  if (requested === 'test') {
+    return {
+      mode: 'test',
+      requested,
+      hasOpenClaw,
+      hasClaude,
+      reason: 'A2A_RUNTIME=test'
+    };
+  }
 
   if (requested === 'generic') {
     return {
@@ -372,6 +386,39 @@ function createRuntimeAdapter(options = {}) {
       }
     }
 
+    // A2A-66: test runtime — spawn A2A_AGENT_COMMAND if set, otherwise echo.
+    // Uses shell: true so the command string is parsed by the shell (supports
+    // quoted args, paths with spaces, pipes, etc.).
+    if (modeInfo.mode === 'test') {
+      const agentCommand = process.env.A2A_AGENT_COMMAND;
+      if (agentCommand) {
+        const payload = JSON.stringify({ message, caller, context });
+        const result = spawnSync(agentCommand, {
+          input: payload,
+          encoding: 'utf8',
+          shell: true,
+          timeout: (timeoutMs || 65000) + 5000,
+          maxBuffer: 1024 * 1024,
+          cwd: workspaceDir,
+          env: process.env
+        });
+        if (result.error) {
+          throw result.error;
+        }
+        // A2A-66: check exit code — non-zero means the bridge command failed.
+        if (result.status !== 0) {
+          const stderr = String(result.stderr || '').trim();
+          throw new Error(
+            `A2A_AGENT_COMMAND exited with code ${result.status}` +
+            (stderr ? `: ${stderr.slice(0, 200)}` : '')
+          );
+        }
+        return String(result.stdout || '').trim() || '[test-runtime] Empty command output';
+      }
+      const snippet = cleanText(message || prompt || '', 120);
+      return `[test-runtime] Echo: ${snippet}`;
+    }
+
     if (modeInfo.mode !== 'openclaw') {
       throw new Error(
         `No supported A2A runtime available (mode=${modeInfo.mode}). ` +
@@ -457,6 +504,12 @@ function createRuntimeAdapter(options = {}) {
       throw new Error('Claude summary returned empty result');
     }
 
+    // A2A-66: test runtime — return canned summary.
+    if (modeInfo.mode === 'test') {
+      const text = 'Test conversation concluded.';
+      return { summary: text, ownerSummary: text };
+    }
+
     if (modeInfo.mode !== 'openclaw') {
       throw new Error(
         `No supported A2A runtime available for summarization (mode=${modeInfo.mode}). ` +
@@ -526,14 +579,15 @@ function createRuntimeAdapter(options = {}) {
       data: { level }
     });
 
-    if (modeInfo.mode === 'claude') {
-      // Claude mode: notifications are a no-op (no notification transport available)
-      logger.debug('Notification skipped (claude mode has no notification transport)', {
-        event: 'notify_skipped_claude',
+    if (modeInfo.mode === 'claude' || modeInfo.mode === 'test') {
+      // Claude/test mode: notifications are a no-op (no notification transport available)
+      logger.debug('Notification skipped (no notification transport in this mode)', {
+        event: 'notify_skipped',
         traceId,
         requestId,
         conversationId,
-        tokenId: token?.id
+        tokenId: token?.id,
+        data: { mode: modeInfo.mode }
       });
       return;
     }

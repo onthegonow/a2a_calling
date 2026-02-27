@@ -125,7 +125,111 @@ module.exports = function (test, assert) {
     );
   });
 
-  // ── Claude adapter return shape ────────────────────────────
+  // ── Test mode (A2A-66) ───────────────────────────────────
+
+  test('resolveRuntimeMode returns test mode for A2A_RUNTIME=test', async () => {
+    await withEnv({ A2A_RUNTIME: 'test' }, () => {
+      const { resolveRuntimeMode } = loadAdapterModule();
+      const mode = resolveRuntimeMode();
+      assert.equal(mode.mode, 'test');
+      assert.equal(mode.requested, 'test');
+      assert.equal(mode.reason, 'A2A_RUNTIME=test');
+      assert.equal(mode.warning, undefined);
+    });
+  });
+
+  test('createRuntimeAdapter in test mode exposes expected API surface', async () => {
+    await withEnv({ A2A_RUNTIME: 'test' }, () => {
+      const { createRuntimeAdapter } = loadAdapterModule();
+      const runtime = createRuntimeAdapter({ workspaceDir: process.cwd() });
+      assert.equal(runtime.mode, 'test');
+      assert.type(runtime.runTurn, 'function');
+      assert.type(runtime.summarize, 'function');
+      assert.type(runtime.notify, 'function');
+      assert.type(runtime.getLastTurnMeta, 'function');
+    });
+  });
+
+  test('test mode runTurn echoes message when no A2A_AGENT_COMMAND', async () => {
+    await withEnv({ A2A_RUNTIME: 'test', A2A_AGENT_COMMAND: null }, async () => {
+      const { createRuntimeAdapter } = loadAdapterModule();
+      const runtime = createRuntimeAdapter({ workspaceDir: process.cwd() });
+      const response = await runtime.runTurn({
+        sessionId: 'test-session',
+        message: 'Hello from test',
+        caller: { name: 'tester' },
+        context: {}
+      });
+      assert.includes(response, '[test-runtime] Echo:');
+      assert.includes(response, 'Hello from test');
+    });
+  });
+
+  test('test mode runTurn spawns A2A_AGENT_COMMAND when set', async () => {
+    await withEnv({ A2A_RUNTIME: 'test', A2A_AGENT_COMMAND: 'echo BRIDGE_OK' }, async () => {
+      const { createRuntimeAdapter } = loadAdapterModule();
+      const runtime = createRuntimeAdapter({ workspaceDir: process.cwd() });
+      const response = await runtime.runTurn({
+        sessionId: 'test-session',
+        message: 'Hello',
+        caller: { name: 'tester' },
+        context: {}
+      });
+      assert.includes(response, 'BRIDGE_OK');
+    });
+  });
+
+  test('test mode runTurn throws when A2A_AGENT_COMMAND exits non-zero', async () => {
+    await withEnv({ A2A_RUNTIME: 'test', A2A_AGENT_COMMAND: 'exit 1' }, async () => {
+      const { createRuntimeAdapter } = loadAdapterModule();
+      const runtime = createRuntimeAdapter({ workspaceDir: process.cwd() });
+      let threw = false;
+      try {
+        await runtime.runTurn({
+          sessionId: 'test-session',
+          message: 'Hello',
+          caller: { name: 'tester' },
+          context: {}
+        });
+      } catch (err) {
+        threw = true;
+        assert.includes(err.message, 'exited with code');
+      }
+      assert.ok(threw, 'should throw on non-zero exit');
+    });
+  });
+
+  test('test mode summarize returns canned summary', async () => {
+    await withEnv({ A2A_RUNTIME: 'test' }, async () => {
+      const { createRuntimeAdapter } = loadAdapterModule();
+      const runtime = createRuntimeAdapter({ workspaceDir: process.cwd() });
+      const result = await runtime.summarize({
+        sessionId: 'test-session',
+        prompt: 'Summarize',
+        messages: []
+      });
+      assert.ok(result.summary);
+      assert.ok(result.ownerSummary);
+    });
+  });
+
+  test('test mode notify is a no-op', async () => {
+    await withEnv({ A2A_RUNTIME: 'test' }, async () => {
+      const { createRuntimeAdapter } = loadAdapterModule();
+      const runtime = createRuntimeAdapter({ workspaceDir: process.cwd() });
+      // Should not throw
+      await runtime.notify({
+        level: 'all',
+        token: { id: 'test-token' },
+        caller: { name: 'tester' },
+        message: 'test',
+        conversationId: 'conv-test',
+        traceId: 'trace-test'
+      });
+    });
+  });
+
+  // ── Adapter return shape ────────────────────────────────
 
   test('createRuntimeAdapter exposes getLastTurnMeta method', async () => {
     await withEnv({ A2A_RUNTIME: 'generic' }, () => {
