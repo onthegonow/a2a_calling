@@ -21,7 +21,7 @@ const {
   extractCollaborationState
 } = require('./lib/prompt-template');
 const { findAvailablePort } = require('./lib/port-scanner');
-const { createLogger, closeAllLoggerStores } = require('./lib/logger');
+const { createLogger, closeAllLoggerStores, pruneAllLoggerStores } = require('./lib/logger');
 const { writePidFile, removePidFile } = require('./lib/pid-file');
 const { buildUnifiedSummaryPrompt } = require('./lib/summary-prompt');
 const { A2AConfig } = require('./lib/config');
@@ -1018,6 +1018,67 @@ async function startServer() {
       }
     });
     writePidFile(process.pid);
+
+    // A2A-65: Run retention cleanup on startup (best effort — failures must not prevent server startup)
+    try {
+      const retention = config.getRetention();
+
+      // Conversations retention
+      const convStore = getServerConvStore();
+      if (convStore) {
+        try {
+          const convResult = convStore.pruneOld({
+            conversations_days: retention.conversations_days,
+            compress_after_days: retention.compress_after_days
+          });
+          logger.info('Startup retention: conversations pruned', {
+            event: 'startup_retention_conversations',
+            data: convResult
+          });
+        } catch (err) {
+          logger.warn('Startup retention: conversations prune failed', {
+            event: 'startup_retention_conversations_failed',
+            error: err
+          });
+        }
+      }
+
+      // Logger retention
+      try {
+        const logResults = pruneAllLoggerStores({ days: retention.logs_days });
+        const totalDeleted = logResults.reduce((sum, r) => sum + (r.deleted || 0), 0);
+        logger.info('Startup retention: logs pruned', {
+          event: 'startup_retention_logs',
+          data: { total_deleted: totalDeleted, stores_pruned: logResults.length }
+        });
+      } catch (err) {
+        logger.warn('Startup retention: logs prune failed', {
+          event: 'startup_retention_logs_failed',
+          error: err
+        });
+      }
+
+      // Token retention
+      try {
+        const tokenResult = tokenStore.cleanupExpired({
+          token_expiry_grace_days: retention.token_expiry_grace_days
+        });
+        logger.info('Startup retention: tokens cleaned', {
+          event: 'startup_retention_tokens',
+          data: tokenResult
+        });
+      } catch (err) {
+        logger.warn('Startup retention: token cleanup failed', {
+          event: 'startup_retention_tokens_failed',
+          error: err
+        });
+      }
+    } catch (err) {
+      logger.warn('Startup retention failed', {
+        event: 'startup_retention_failed',
+        error: err
+      });
+    }
 
     if (!updateManager) {
       const pkg = require('../package.json');
