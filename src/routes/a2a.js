@@ -12,6 +12,7 @@ const { TokenStore } = require('../lib/tokens');
 const crypto = require('crypto');
 const { createLogger, createTraceId } = require('../lib/logger');
 const { verifySignature, isTimestampValid, fingerprint } = require('../lib/crypto');
+const { isDirectLocalRequest } = require('../lib/local-request');
 
 // Lazy-load conversation store (optional dependency)
 let ConversationStore = null;
@@ -65,14 +66,6 @@ const RATE_LIMIT_STALE_MS = 24 * 60 * 60 * 1000; // 24 hours
 const MAX_MESSAGE_LENGTH = 10000;  // 10KB max message
 const MAX_TIMEOUT_SECONDS = 300;   // 5 min max timeout
 const MIN_TIMEOUT_SECONDS = 5;     // 5 sec min timeout
-
-function isLoopbackAddress(ip) {
-  if (!ip) return false;
-  if (ip === '::1' || ip === '127.0.0.1' || ip === '::ffff:127.0.0.1') {
-    return true;
-  }
-  return ip.startsWith('::ffff:127.');
-}
 
 function resolveTraceId(req) {
   const headerTrace = req.headers['x-trace-id'];
@@ -797,7 +790,7 @@ function createRoutes(options = {}) {
     // For now, require an admin token or local access
     const expected = process.env.A2A_ADMIN_TOKEN;
     const adminToken = req.headers['x-admin-token'];
-    if (!isLoopbackAddress(req.ip)) {
+    if (!isDirectLocalRequest(req)) {
       if (!expected) {
         return res.status(401).json({
           error: 'admin_token_required',
@@ -833,7 +826,7 @@ function createRoutes(options = {}) {
   router.get('/conversations/:id', (req, res) => {
     const expected = process.env.A2A_ADMIN_TOKEN;
     const adminToken = req.headers['x-admin-token'];
-    if (!isLoopbackAddress(req.ip)) {
+    if (!isDirectLocalRequest(req)) {
       if (!expected) {
         return res.status(401).json({
           error: 'admin_token_required',
