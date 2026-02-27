@@ -35,7 +35,7 @@ A2A Calling enables agent-to-agent communication across OpenClaw instances. Agen
 │  ├─ claude-subagent.js  Claude API integration for summaries      │
 │  ├─ openclaw-integration.js  OpenClaw runtime hooks               │
 │  ├─ prompt-template.js  Prompt template utilities                 │
-│  ├─ runtime-adapter.js  Runtime mode detection (standalone/OCW)   │
+│  ├─ runtime-adapter.js  Runtime mode detection (openclaw/claude/test) │
 │  ├─ dashboard-events.js  SSE event broadcasting                   │
 │  ├─ external-ip.js    External IP/hostname detection              │
 │  ├─ invite-host.js    Invite URL construction                     │

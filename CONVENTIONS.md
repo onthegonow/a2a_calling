@@ -126,6 +126,15 @@ All data stores implement retention cleanup following the `dashboard-events.js` 
 - **Config defaults**: `A2AConfig.getRetention()` merges partial config with defaults — never writes defaults to disk
 - **Token grace period**: Expired tokens are kept for 1 hour after expiry (in-flight call protection)
 
+## Test Runtime (A2A-66)
+
+`A2A_RUNTIME=test` provides a minimal runtime for CI and headless environments:
+- `runTurn()`: if `A2A_AGENT_COMMAND` env var is set, spawns it with `shell: true` and JSON payload on stdin; otherwise echoes the message
+- `summarize()`: returns canned `{ summary, ownerSummary }` — no LLM required
+- `notify()`: no-op (same as claude mode)
+- Non-zero exit from `A2A_AGENT_COMMAND` throws an error with stderr context
+- The CI smoke lane (`a2atesting/a2acalling/scenarios/smoke-lane.js`) uses this mode
+
 ## Anti-Patterns
 
 - Do NOT use `console.log` — use the structured logger
