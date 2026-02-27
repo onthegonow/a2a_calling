@@ -384,6 +384,73 @@ class TokenStore {
   }
 
   /**
+   * A2A-65: Remove expired and old-revoked tokens from the store.
+   *
+   * - Tokens expired for >1 hour are removed (grace period for in-flight calls)
+   * - Tokens revoked >token_expiry_grace_days ago are removed
+   * - Valid and recently-expired tokens are preserved
+   *
+   * @param {object} [options]
+   * @param {number} [options.token_expiry_grace_days=30] - Days after revocation before removal
+   * @returns {{ removed_expired: number, removed_revoked: number }}
+   */
+  cleanupExpired(options = {}) {
+    const graceDays = Number.isFinite(options.token_expiry_grace_days)
+      ? options.token_expiry_grace_days
+      : 30;
+
+    const db = this._load();
+    const now = Date.now();
+    const oneHourMs = 60 * 60 * 1000;
+    const gracePeriodMs = graceDays * 24 * 60 * 60 * 1000;
+
+    let removed_expired = 0;
+    let removed_revoked = 0;
+
+    const original = db.tokens.length;
+
+    db.tokens = db.tokens.filter(token => {
+      // Remove tokens expired for > 1 hour
+      if (token.expires_at) {
+        const expiresAt = new Date(token.expires_at).getTime();
+        if (expiresAt < now - oneHourMs) {
+          removed_expired++;
+          return false;
+        }
+      }
+
+      // Remove tokens revoked > graceDays ago
+      if (token.revoked && token.revoked_at) {
+        const revokedAt = new Date(token.revoked_at).getTime();
+        if (revokedAt < now - gracePeriodMs) {
+          removed_revoked++;
+          return false;
+        }
+      }
+
+      return true;
+    });
+
+    // Only write if something changed
+    if (db.tokens.length < original) {
+      this._save(db);
+    }
+
+    // A2A-65: Log cleanup results (best effort)
+    try {
+      const cleanupLogger = require('./logger').createLogger({ component: 'a2a.cleanup' });
+      cleanupLogger.info('Token cleanup completed', {
+        event: 'tokens_cleaned',
+        data: { removed_expired, removed_revoked, remaining: db.tokens.length, grace_days: graceDays }
+      });
+    } catch (_) {
+      // Best effort
+    }
+
+    return { removed_expired, removed_revoked };
+  }
+
+  /**
    * Add a remote agent endpoint (contact)
    * Note: Token is encrypted at rest using a derived key
    * 

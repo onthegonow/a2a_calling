@@ -651,10 +651,25 @@ function closeAllLoggerStores() {
   storeCache.clear();
 }
 
+// A2A-65: Prune old entries from all cached logger stores.
+// Best effort — individual store failures are caught and logged.
+function pruneAllLoggerStores(options = {}) {
+  const results = [];
+  for (const store of storeCache.values()) {
+    try {
+      results.push(store.pruneOld(options));
+    } catch (_) {
+      // A2A-65: Best effort — one store failure must not block others
+    }
+  }
+  return results;
+}
+
 module.exports = {
   LOG_DB_FILENAME,
   LogStore,
   createLogger,
   createTraceId,
-  closeAllLoggerStores
+  closeAllLoggerStores,
+  pruneAllLoggerStores
 };
