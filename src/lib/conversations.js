@@ -16,6 +16,8 @@ const DEFAULT_CONFIG_DIR = process.env.A2A_CONFIG_DIR ||
 
 const DB_FILENAME = 'a2a-conversations.db';
 const logger = createLogger({ component: 'a2a.conversations' });
+// A2A-63: Dedicated cleanup logger for retention pruning operations
+const cleanupLogger = createLogger({ component: 'a2a.cleanup' });
 
 class ConversationStore {
   constructor(configDir = DEFAULT_CONFIG_DIR, options = {}) {
@@ -571,6 +573,135 @@ class ConversationStore {
     }
 
     return { compressed, total: messages.length };
+  }
+
+  /**
+   * A2A-63: Prune old concluded/timeout conversations and their messages.
+   *
+   * Pipeline:
+   *   1. Compress messages in the compress window (compress_after_days..conversations_days)
+   *   2. Delete messages belonging to expired conversations
+   *   3. Delete the expired conversations themselves
+   *   4. VACUUM only when >100 total rows deleted
+   *
+   * Active conversations are NEVER deleted regardless of age.
+   *
+   * @param {object} options
+   * @param {number} [options.conversations_days=90] - Delete concluded/timeout conversations older than this
+   * @param {number} [options.compress_after_days=7] - Compress messages older than this
+   * @returns {{ compressed: number, deletedMessages: number, deletedConversations: number, vacuumed: boolean }}
+   */
+  pruneOld(options = {}) {
+    const db = this._initDb();
+    if (!db) {
+      return {
+        compressed: 0,
+        deletedMessages: 0,
+        deletedConversations: 0,
+        vacuumed: false,
+        error: this._dbError
+      };
+    }
+
+    const conversationsDays = Number.isFinite(options.conversations_days)
+      ? options.conversations_days
+      : 90;
+    const compressAfterDays = Number.isFinite(options.compress_after_days)
+      ? options.compress_after_days
+      : 7;
+
+    // Step 1: Compress messages in the compress window before deletion
+    const compressResult = this.compressOldMessages(compressAfterDays);
+
+    // Step 2: Find expired conversations (concluded or timeout, older than retention threshold)
+    // A2A-63: Only prune conversations with a non-NULL ended_at that is older than the threshold.
+    // Active conversations have NULL ended_at and are never touched.
+    const retentionThreshold = new Date(
+      Date.now() - conversationsDays * 24 * 60 * 60 * 1000
+    ).toISOString();
+
+    const expiredConvIds = db.prepare(`
+      SELECT id FROM conversations
+      WHERE status IN ('concluded', 'timeout')
+        AND ended_at IS NOT NULL
+        AND ended_at < ?
+    `).all(retentionThreshold).map(row => row.id);
+
+    let deletedMessages = 0;
+    let deletedConversations = 0;
+
+    if (expiredConvIds.length > 0) {
+      // A2A-63: Delete messages BEFORE their parent conversations (foreign key safety)
+      const deleteMsgs = db.prepare(
+        'DELETE FROM messages WHERE conversation_id = ?'
+      );
+      const deleteConv = db.prepare(
+        'DELETE FROM conversations WHERE id = ?'
+      );
+
+      const pruneTransaction = db.transaction((ids) => {
+        for (const id of ids) {
+          const msgResult = deleteMsgs.run(id);
+          deletedMessages += msgResult.changes;
+          const convResult = deleteConv.run(id);
+          deletedConversations += convResult.changes;
+        }
+      });
+
+      pruneTransaction(expiredConvIds);
+    }
+
+    // Step 3: VACUUM only when >100 total rows deleted
+    const totalDeleted = deletedMessages + deletedConversations;
+    let vacuumed = false;
+    if (totalDeleted > 100) {
+      try {
+        db.exec('VACUUM');
+        vacuumed = true;
+      } catch (_) {
+        // A2A-63: Best effort — VACUUM can fail if another connection holds a lock
+      }
+    }
+
+    // Step 4: Log results
+    cleanupLogger.info('Conversation retention prune completed', {
+      event: 'conversations_pruned',
+      data: {
+        compressed: compressResult.compressed,
+        deleted_messages: deletedMessages,
+        deleted_conversations: deletedConversations,
+        vacuumed,
+        retention_days: conversationsDays,
+        compress_after_days: compressAfterDays
+      }
+    });
+
+    return {
+      compressed: compressResult.compressed,
+      deletedMessages,
+      deletedConversations,
+      vacuumed
+    };
+  }
+
+  /**
+   * A2A-63: Get database row counts for monitoring.
+   *
+   * @returns {{ conversations: number, messages: number }}
+   */
+  getDatabaseStats() {
+    const db = this._initDb();
+    if (!db) {
+      return { conversations: 0, messages: 0 };
+    }
+
+    const convCount = db.prepare('SELECT COUNT(*) AS count FROM conversations').get();
+    const msgCount = db.prepare('SELECT COUNT(*) AS count FROM messages').get();
+
+    return {
+      conversations: convCount ? convCount.count : 0,
+      messages: msgCount ? msgCount.count : 0
+    };
   }
 
   /**
