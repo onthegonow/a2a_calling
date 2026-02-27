@@ -522,4 +522,15 @@ module.exports = function (test, assert, helpers) {
     store.close();
     tmp.cleanup();
   });
+
+  // ── A2A-71: WAL mode ──────────────────────────────────────
+
+  test('ConversationStore enables WAL journal mode on init', () => {
+    const store = freshStore();
+    assert.ok(store.isAvailable());
+    const row = store.db.prepare('PRAGMA journal_mode').get();
+    assert.equal(row.journal_mode, 'wal');
+    store.close();
+    tmp.cleanup();
+  });
 };

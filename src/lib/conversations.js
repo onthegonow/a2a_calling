@@ -82,6 +82,8 @@ class ConversationStore {
    */
   _migrate() {
     this.db.exec(`
+      PRAGMA journal_mode = WAL;
+
       -- Conversations with remote agents
       CREATE TABLE IF NOT EXISTS conversations (
         id TEXT PRIMARY KEY,
