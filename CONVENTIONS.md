@@ -113,6 +113,19 @@ Tokens have a tier (`public`, `friends`, `family`) and a disclosure level (`publ
 - Admin token comparison uses `timingSafeTokenEqual()` from `src/routes/a2a.js` — do NOT use `!==` for secret comparison
 - Query parameter parsing follows the dashboard.js pattern: `Math.min(max, Math.max(min, Number.parseInt(String(value), 10) || defaultValue))`
 
+## Retention & Cleanup (A2A-55)
+
+All data stores implement retention cleanup following the `dashboard-events.js` auto-prune pattern:
+
+- **Cleanup component**: Use `createLogger({ component: 'a2a.cleanup' })` for all retention logging
+- **Best effort**: Prune failures are caught and logged as warnings — never crash the server
+- **VACUUM threshold**: Only run SQLite VACUUM after >100 rows deleted (costly I/O)
+- **Auto-prune**: Logger store prunes on every 1000th `write()` call (counter-based, like dashboard-events.js)
+- **Recursion safety**: Logger `pruneOld()` uses `_pruning` flag to prevent auto-prune during explicit prune
+- **Server startup**: `src/server.js` calls all three retention mechanisms after `writePidFile()`, before `updateManager.start()`
+- **Config defaults**: `A2AConfig.getRetention()` merges partial config with defaults — never writes defaults to disk
+- **Token grace period**: Expired tokens are kept for 1 hour after expiry (in-flight call protection)
+
 ## Anti-Patterns
 
 - Do NOT use `console.log` — use the structured logger

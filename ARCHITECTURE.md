@@ -55,6 +55,16 @@ A2A Calling enables agent-to-agent communication across OpenClaw instances. Agen
 - **Config**: JSON at `~/.config/openclaw/a2a-config.json`
 - **Disclosure**: JSON at `~/.config/openclaw/a2a-disclosure.json`
 
+## Database Lifecycle Management (A2A-55)
+
+All three data stores have automatic retention cleanup that runs on server startup:
+
+- **Conversations**: `ConversationStore.pruneOld()` compresses messages 7+ days old, deletes concluded/timeout conversations 90+ days old. Active conversations are never deleted.
+- **Logs**: `LogStore.pruneOld()` deletes entries 30+ days old. Auto-prune triggers on every 1000th write (best effort). `pruneAllLoggerStores()` iterates all cached stores.
+- **Tokens**: `TokenStore.cleanupExpired()` removes tokens expired >1 hour (grace for in-flight calls) and revoked tokens >30 days old.
+
+All retention periods are configurable via `a2a-config.json` `retention` section. SQLite VACUUM runs only after >100 rows deleted. All cleanup is best-effort — failures are logged but never prevent server startup.
+
 ## Permission System
 
 Three tiers with escalating capabilities:
