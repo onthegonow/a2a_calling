@@ -2,7 +2,7 @@
 
 ## Logging
 
-Use the structured logger from `src/lib/logger.js`. Never use bare `console.log`.
+Use the structured logger from `src/lib/logger.js`. Never use bare `console.log` outside the logger sink implementation in `src/lib/logger.js`.
 
 ```js
 const { createLogger } = require('./logger');
@@ -46,7 +46,7 @@ Do NOT add new npm dependencies without explicit justification. Use Node.js buil
 
 ## Module Pattern
 
-All modules use CommonJS (`require`/`module.exports`). Each lib file exports a focused API. Large modules export a class (e.g., `TokenStore`, `ConversationStore`, `A2AClient`). Utility modules export functions.
+Runtime/server modules use CommonJS (`require`/`module.exports`). Each lib file exports a focused API. Large modules export a class (e.g., `TokenStore`, `ConversationStore`, `A2AClient`). Utility modules export functions. Tooling scripts may use ESM when required by host integration (for example, `scripts/install-openclaw.js`).
 
 ## Naming
 
@@ -105,7 +105,9 @@ close() {
 
 ## Permission Tiers
 
-Tokens have a tier (`public`, `friends`, `family`) and a disclosure level (`public`, `minimal`, `none`). These are enforced at the route level in `src/routes/a2a.js`.
+Tokens carry a permissions tier (`public`, `friends`, `family`, `custom`). Disclosure policy is manifest-driven via `src/lib/disclosure.js` and tier inheritance in prompt/runtime paths.
+
+Do not add new logic that depends on `tier.disclosure` or `token.disclosure` fields; those fields were removed from the core tier/token model.
 
 ## Local Request Detection (A2A-73)
 
@@ -150,7 +152,7 @@ For in-memory Maps that accumulate entries over time (e.g., `claudeSessions` in 
 
 ## Anti-Patterns
 
-- Do NOT use `console.log` — use the structured logger
+- Do NOT use `console.log` outside the logger sink in `src/lib/logger.js`
 - Do NOT add npm dependencies for things Node.js builtins handle
 - Do NOT create new error classes — use existing patterns
 - Do NOT hardcode config paths — use config resolution
