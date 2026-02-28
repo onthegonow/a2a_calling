@@ -139,6 +139,15 @@ All data stores implement retention cleanup following the `dashboard-events.js` 
 - Non-zero exit from `A2A_AGENT_COMMAND` throws an error with stderr context
 - The CI smoke lane (`a2atesting/a2acalling/scenarios/smoke-lane.js`) uses this mode
 
+## In-Memory Map Eviction (A2A-69)
+
+For in-memory Maps that accumulate entries over time (e.g., `claudeSessions` in `runtime-adapter.js`), use the prune-on-access pattern:
+- TTL eviction: delete entries older than a configurable threshold (checked via `updatedAt` timestamp)
+- Max-entry eviction: delete oldest entries first when Map exceeds a configurable max size
+- Prune runs at the start of the next operation (not on a timer) — zero overhead when idle
+- Both thresholds configurable via environment variables
+- Refresh `updatedAt` on every access to prevent evicting active entries
+
 ## Anti-Patterns
 
 - Do NOT use `console.log` — use the structured logger
