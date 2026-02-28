@@ -2,7 +2,7 @@
 
 ## Logging
 
-Use the structured logger from `src/lib/logger.js`. Never use bare `console.log` outside the logger sink implementation in `src/lib/logger.js`.
+For runtime/server code under `src/`, use the structured logger from `src/lib/logger.js`. Keep bare `console.log`/`console.error` limited to CLI/setup/test entrypoints (for user-facing terminal output) and the logger sink implementation in `src/lib/logger.js`.
 
 ```js
 const { createLogger } = require('./logger');
@@ -46,7 +46,7 @@ Do NOT add new npm dependencies without explicit justification. Use Node.js buil
 
 ## Module Pattern
 
-Runtime/server modules use CommonJS (`require`/`module.exports`). Each lib file exports a focused API. Large modules export a class (e.g., `TokenStore`, `ConversationStore`, `A2AClient`). Utility modules export functions. Tooling scripts may use ESM when required by host integration (for example, `scripts/install-openclaw.js`).
+Runtime/server modules use CommonJS (`require`/`module.exports`). Each lib file exports a focused API. Large modules export a class (e.g., `TokenStore`, `ConversationStore`, `A2AClient`). Utility modules export functions. Tooling scripts in this repo currently use CommonJS as well; only introduce ESM if a host integration requires it, and keep module style consistent within a file.
 
 ## Naming
 
