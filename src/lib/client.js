@@ -19,16 +19,198 @@ const RETRYABLE_CODES = ['ECONNRESET', 'ECONNREFUSED', 'EPIPE', 'ENOTFOUND', 'EA
 // A2A-54: exponential backoff — first retry is immediate, then 1s, then 2s
 const RETRY_DELAYS = [0, 1000, 2000];
 
-/**
- * A2A-54: Retry wrapper for transient network failures.
- * Only retries on RETRYABLE_CODES and timeout errors — HTTP status errors
- * bubble up immediately since the remote explicitly rejected the request.
- *
- * @param {Function} fn - async function to retry
- * @param {object} options
- * @param {number[]} options.delays - delay sequence in ms (default: RETRY_DELAYS)
- * @returns {Promise<*>}
- */
+// A2A-80: Agent Card cache — module-level Map with TTL and prune-on-access
+// Each entry: { card: object|null, cachedAt: number }
+// null card = negative cache (failed fetch)
+const _agentCardCache = new Map();
+
+function _readPositiveIntEnv(name, defaultVal) {
+  const raw = process.env[name];
+  if (!raw) return defaultVal;
+  const n = Number.parseInt(raw, 10);
+  return Number.isFinite(n) && n > 0 ? n : defaultVal;
+}
+
+const AGENT_CARD_TTL_MS = _readPositiveIntEnv('A2A_AGENT_CARD_TTL_MS', 300000);
+const AGENT_CARD_MAX_ENTRIES = _readPositiveIntEnv('A2A_AGENT_CARD_MAX_ENTRIES', 200);
+const AGENT_CARD_FETCH_TIMEOUT_MS = 3000;
+
+// A2A-80: Prune-on-access eviction (pattern from A2A-69, NOT imported)
+function _pruneAgentCardCache() {
+  const now = Date.now();
+  for (const [key, entry] of _agentCardCache.entries()) {
+    if (now - entry.cachedAt > AGENT_CARD_TTL_MS) {
+      _agentCardCache.delete(key);
+    }
+  }
+
+  if (_agentCardCache.size <= AGENT_CARD_MAX_ENTRIES) {
+    return;
+  }
+
+  const oldest = Array.from(_agentCardCache.entries())
+    .sort((a, b) => a[1].cachedAt - b[1].cachedAt);
+  const toDelete = _agentCardCache.size - AGENT_CARD_MAX_ENTRIES;
+  for (let i = 0; i < toDelete; i++) {
+    _agentCardCache.delete(oldest[i][0]);
+  }
+}
+
+// A2A-80: Cache key is always hostname:port
+function _agentCardCacheKey(host) {
+  const parsed = splitHostPort(host);
+  const hostname = parsed.hostname;
+  const port = Number.isFinite(parsed.port) ? parsed.port : 80;
+  return `${hostname}:${port}`;
+}
+
+// A2A-80: Validate Agent Card — needs non-empty interfaces[] with { type: 'rest' }
+function _parseAgentCard(json) {
+  if (!json || typeof json !== 'object') return null;
+  if (!Array.isArray(json.interfaces) || json.interfaces.length === 0) return null;
+
+  const restInterface = json.interfaces.find(
+    iface => iface && iface.type === 'rest'
+  );
+  if (!restInterface) return null;
+
+  return json;
+}
+
+// A2A-80: Fetch Agent Card (GET /.well-known/a2a-agent-card, 3s timeout, cached with TTL).
+// TODO: Concurrent call() to same uncached host may duplicate Agent Card fetches.
+function fetchRemoteAgentCard(host) {
+  _pruneAgentCardCache();
+
+  const cacheKey = _agentCardCacheKey(host);
+  const cached = _agentCardCache.get(cacheKey);
+  if (cached) {
+    return Promise.resolve(cached.card);
+  }
+
+  const { protocol, hostname, port } = resolveProtocolAndPort(host);
+
+  return new Promise((resolve) => {
+    const req = protocol.request({
+      hostname,
+      port,
+      path: '/.well-known/a2a-agent-card',
+      method: 'GET',
+      timeout: AGENT_CARD_FETCH_TIMEOUT_MS
+    }, (res) => {
+      let data = '';
+      let bytes = 0;
+      res.on('data', (chunk) => {
+        bytes += chunk.length;
+        if (bytes > MAX_RESPONSE_BYTES) {
+          res.destroy();
+          _agentCardCache.set(cacheKey, { card: null, cachedAt: Date.now() });
+          resolve(null);
+          return;
+        }
+        data += chunk;
+      });
+      res.on('end', () => {
+        if (res.statusCode !== 200) {
+          _agentCardCache.set(cacheKey, { card: null, cachedAt: Date.now() });
+          resolve(null);
+          return;
+        }
+        try {
+          const json = JSON.parse(data);
+          const card = _parseAgentCard(json);
+          _agentCardCache.set(cacheKey, { card, cachedAt: Date.now() });
+          resolve(card);
+        } catch {
+          _agentCardCache.set(cacheKey, { card: null, cachedAt: Date.now() });
+          resolve(null);
+        }
+      });
+    });
+
+    req.on('error', () => {
+      _agentCardCache.set(cacheKey, { card: null, cachedAt: Date.now() });
+      resolve(null);
+    });
+    req.on('timeout', () => {
+      req.destroy();
+      _agentCardCache.set(cacheKey, { card: null, cachedAt: Date.now() });
+      resolve(null);
+    });
+    req.end();
+  });
+}
+
+// A2A-80: Build Google A2A message/send body (ref: a2a.js translateInternalToGoogle)
+function _translateToGoogleRequest(message, conversationId, options = {}, caller = {}) {
+  return {
+    message: {
+      role: 'user',
+      parts: [{ content: { text: message } }],
+      ...(conversationId ? { context_id: conversationId } : {})
+    },
+    metadata: {
+      caller_name: String(caller.name || '').slice(0, 100),
+      caller_owner: String(caller.owner || '').slice(0, 100),
+      caller_instance: String(caller.instance || '').slice(0, 200)
+    },
+    configuration: {
+      timeout_seconds: options.timeoutSeconds || 60,
+      blocking: true
+    }
+  };
+}
+
+// A2A-80: Translate Google A2A Task response to internal format (ref: a2a.js translateGoogleToInternal)
+function _translateGoogleResponse(taskResponse) {
+  const task = taskResponse?.task;
+  if (!task || !task.status) {
+    throw new A2AError('google_a2a_error', 'Invalid Google A2A response: missing task or status');
+  }
+
+  const parts = task.status.message?.parts || [];
+  const textParts = [];
+  for (const part of parts) {
+    if (part?.content && typeof part.content.text === 'string') {
+      textParts.push(part.content.text);
+    }
+  }
+
+  const response = textParts.join('\n');
+  const state = task.status.state;
+  const canContinue = state === 'input-required';
+
+  return {
+    response,
+    conversation_id: task.context_id || null,
+    can_continue: canContinue
+  };
+}
+
+// A2A-80: Resolve message:send URL from Agent Card REST interface (trailing slash stripped)
+function _resolveGoogleA2AUrl(agentCard, host) {
+  const restInterface = agentCard.interfaces.find(
+    iface => iface && iface.type === 'rest'
+  );
+
+  if (restInterface && restInterface.url) {
+    const baseUrl = restInterface.url.replace(/\/+$/, '');
+    return `${baseUrl}/message:send`;
+  }
+
+  // Fallback: build from host
+  const { hostname, port } = splitHostPort(host);
+  const effectivePort = Number.isFinite(port) ? port : 80;
+  const isLocalhost = hostname === 'localhost' ||
+    hostname === '127.0.0.1' ||
+    hostname === '::1' ||
+    hostname.startsWith('127.');
+  const scheme = (isLocalhost || effectivePort === 80 || (Number.isFinite(port) && port !== 443))
+    ? 'http' : 'https';
+  return `${scheme}://${hostname}:${effectivePort}/message:send`;
+}
+
+// A2A-54: Retry on transient network errors only (not HTTP 4xx/5xx)
 async function withRetry(fn, options = {}) {
   const delays = options.delays || RETRY_DELAYS;
   const maxAttempts = delays.length + 1;
@@ -113,16 +295,7 @@ function resolveProtocolAndPort(host) {
   return { protocol, hostname, port };
 }
 
-/**
- * A2A-54: Create a size-capped response handler.
- * Tracks accumulated bytes and destroys the socket if the cap is exceeded,
- * preventing OOM from malicious or misconfigured remote agents.
- *
- * @param {http.IncomingMessage} res - the response stream
- * @param {Function} resolve - promise resolve
- * @param {Function} reject - promise reject
- * @param {Function} onComplete - called with (data, statusCode) when response ends within cap
- */
+// A2A-54: Size-capped response handler — destroys socket if cap exceeded
 function handleSizeCappedResponse(res, resolve, reject, onComplete) {
   let data = '';
   let bytes = 0;
@@ -159,10 +332,7 @@ class A2AClient {
     this._retryDelays = options._retryDelays || RETRY_DELAYS;
   }
 
-  /**
-   * A2A-52: Build signature headers if keypair is available.
-   * Shared helper used by both call() and end().
-   */
+  // A2A-52: Build signature headers if keypair available
   _signHeaders(method, endpoint, body) {
     if (!this.privateKey || !this.publicKey) return {};
     return signRequest({
@@ -174,9 +344,6 @@ class A2AClient {
     });
   }
 
-  /**
-   * Parse an a2a:// URL
-   */
   static parseInvite(inviteUrl) {
     const match = inviteUrl.match(/^a2a:\/\/([^/]+)\/(.+)$/);
     if (!match) {
@@ -185,14 +352,70 @@ class A2AClient {
     return { host: match[1], token: match[2] };
   }
 
-  /**
-   * Call a remote agent
-   *
-   * @param {string|object} endpoint - a2a:// URL or {host, token}
-   * @param {string} message - Message to send
-   * @param {object} options - Additional options
-   * @returns {Promise<object>} Response from remote agent
-   */
+  // A2A-80: Send message via Google A2A protocol (message/send format)
+  _callGoogleA2A(host, token, body, agentCard) {
+    const url = _resolveGoogleA2AUrl(agentCard, host);
+    // Parse the URL to extract components for http/https request
+    const parsed = new URL(url);
+    const proto = parsed.protocol === 'https:' ? https : http;
+    const path = parsed.pathname;
+
+    // A2A-52: attach signature headers when keypair available
+    const sigHeaders = this._signHeaders('POST', path, body);
+
+    const makeRequest = () => new Promise((resolve, reject) => {
+      const req = proto.request({
+        hostname: parsed.hostname,
+        port: parsed.port || (parsed.protocol === 'https:' ? 443 : 80),
+        path,
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+          'Content-Length': Buffer.byteLength(body),
+          ...sigHeaders
+        },
+        timeout: this.timeout
+      }, (res) => {
+        handleSizeCappedResponse(res, resolve, reject, (data, statusCode) => {
+          try {
+            const json = JSON.parse(data);
+            if (statusCode >= 400) {
+              // A2A-80: map Google A2A error format to A2AError
+              const errObj = json.error || {};
+              const code = errObj.code || json.error || 'google_a2a_error';
+              const message = errObj.message || json.message || data;
+              reject(new A2AError(String(code), message, statusCode));
+            } else {
+              resolve(_translateGoogleResponse(json));
+            }
+          } catch (e) {
+            if (e instanceof A2AError) {
+              reject(e);
+            } else {
+              reject(new A2AError('parse_error', `Failed to parse Google A2A response: ${data}`, statusCode));
+            }
+          }
+        });
+      });
+
+      req.on('error', (e) => {
+        reject(new A2AError('network_error', e.code ? `${e.code}: ${e.message}` : e.message));
+      });
+
+      req.on('timeout', () => {
+        req.destroy();
+        reject(new A2AError('timeout', 'Request timed out'));
+      });
+
+      req.write(body);
+      req.end();
+    });
+
+    return withRetry(makeRequest, { delays: this._retryDelays });
+  }
+
+  // Call a remote agent — auto-detects Google A2A via Agent Card
   async call(endpoint, message, options = {}) {
     let host, token;
 
@@ -204,6 +427,18 @@ class A2AClient {
 
     const { conversationId, context, timeoutSeconds } = options;
 
+    // A2A-80: check Agent Card to decide Google A2A vs proprietary format
+    const agentCard = await fetchRemoteAgentCard(host);
+
+    if (agentCard) {
+      // Google A2A format path
+      const googleBody = JSON.stringify(
+        _translateToGoogleRequest(message, conversationId, { timeoutSeconds }, this.caller)
+      );
+      return this._callGoogleA2A(host, token, googleBody, agentCard);
+    }
+
+    // Proprietary format path (unchanged)
     const body = JSON.stringify({
       message,
       conversation_id: conversationId,
@@ -262,13 +497,7 @@ class A2AClient {
     return withRetry(makeRequest, { delays: this._retryDelays });
   }
 
-  /**
-   * Explicitly end a remote conversation and trigger call conclusion
-   *
-   * @param {string|object} endpoint - a2a:// URL or {host, token}
-   * @param {string} conversationId - Conversation ID to conclude
-   * @returns {Promise<object>} End response from remote agent
-   */
+  // End a remote conversation — no-op for Google A2A remotes
   async end(endpoint, conversationId) {
     if (!conversationId) {
       throw new A2AError('missing_conversation_id', 'conversationId is required');
@@ -282,6 +511,17 @@ class A2AClient {
       ({ host, token } = endpoint);
     }
 
+    // A2A-80: Google A2A remotes don't have an end endpoint — return synthetic response
+    const agentCard = await fetchRemoteAgentCard(host);
+    if (agentCard) {
+      logger.info('Skipping end() for Google A2A remote', {
+        event: 'google_a2a_end_skipped',
+        data: { conversationId, host }
+      });
+      return { ended: true, summary: null };
+    }
+
+    // Proprietary format path (unchanged)
     const body = JSON.stringify({
       conversation_id: conversationId
     });
@@ -336,9 +576,6 @@ class A2AClient {
     return withRetry(makeRequest, { delays: this._retryDelays });
   }
 
-  /**
-   * Check if a remote agent is available
-   */
   async ping(endpoint) {
     let host;
 
@@ -378,9 +615,6 @@ class A2AClient {
     });
   }
 
-  /**
-   * Get A2A status of a remote
-   */
   async status(endpoint) {
     let host;
 
@@ -431,6 +665,7 @@ class A2AError extends Error {
 }
 
 // A2A-54: export internals for testing (splitHostPort, resolveProtocolAndPort, constants)
+// A2A-80: export Agent Card cache and helpers for testing
 module.exports = {
   A2AClient,
   A2AError,
@@ -438,5 +673,11 @@ module.exports = {
   _resolveProtocolAndPort: resolveProtocolAndPort,
   _MAX_RESPONSE_BYTES: MAX_RESPONSE_BYTES,
   _RETRYABLE_CODES: RETRYABLE_CODES,
-  _RETRY_DELAYS: RETRY_DELAYS
+  _RETRY_DELAYS: RETRY_DELAYS,
+  _agentCardCache,
+  _parseAgentCard,
+  _translateToGoogleRequest,
+  _translateGoogleResponse,
+  _resolveGoogleA2AUrl,
+  fetchRemoteAgentCard
 };

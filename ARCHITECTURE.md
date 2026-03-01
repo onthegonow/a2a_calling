@@ -7,14 +7,15 @@ A2A Calling enables agent-to-agent communication across OpenClaw instances. Agen
 ```
 ┌──────────────────────────────────────────────────────────────────┐
 │  CLI (bin/cli.js)                                                │
-│  Commands: create, list, revoke, call, contacts, conversations   │
+│  Commands: create/list/revoke/call + ops commands (quickstart, gui, update, app, skills) │
 └───────────┬──────────────────────────────────────────────────────┘
             │
 ┌───────────▼──────────────────────────────────────────────────────┐
 │  Express Server (src/server.js)                                   │
-│  ├─ /api/a2a/*          → src/routes/a2a.js (inbound calls, tokens)   │
+│  ├─ /api/a2a/* (invoke/end/message:send/agent-card/tokens/admin) → src/routes/a2a.js │
 │  ├─ /api/a2a/callbook/* + /callbook/* → src/routes/callbook.js         │
-│  └─ /api/a2a/dashboard/* + /dashboard/* → src/routes/dashboard.js      │
+│  ├─ /api/a2a/dashboard/* + /dashboard/* → src/routes/dashboard.js      │
+│  └─ /.well-known/a2a-agent-card → src/lib/agent-card.js               │
 └───────────┬──────────────────────────────────────────────────────┘
             │
 ┌───────────▼──────────────────────────────────────────────────────┐
@@ -29,6 +30,7 @@ A2A Calling enables agent-to-agent communication across OpenClaw instances. Agen
 │  ├─ disclosure.js     Disclosure manifest loading + tier merging  │
 │  ├─ config.js         Config file management                      │
 │  ├─ crypto.js         Ed25519 identity keypair + signing           │
+│  ├─ agent-card.js     Google A2A Agent Card generation            │
 │  ├─ logger.js         Structured logger (SQLite + stdout)         │
 │  ├─ call-monitor.js   Active call monitoring                      │
 │  ├─ callbook.js       Contact/callbook management                 │
@@ -98,6 +100,14 @@ Tauri v2 app at `native/macos/` wrapping the dashboard SPA. Provides native menu
 
 Ed25519 cryptographic identity for agents. Each instance generates a keypair on first run (stored in config). Outbound calls sign messages; inbound calls verify signatures. Uses Node.js built-in `crypto.sign`/`crypto.verify` — no external dependencies. See `src/lib/crypto.js`.
 
+## Google A2A Compatibility
+
+Inbound compatibility endpoints are implemented in `src/routes/a2a.js`:
+- `POST /api/a2a/message:send` (Google A2A wire format ingress mapped into internal invoke flow)
+- `GET /api/a2a/agent-card` and `GET /.well-known/a2a-agent-card` (Agent Card discovery via `src/lib/agent-card.js`)
+
+Outbound calls auto-detect Google A2A remotes via Agent Card (`GET /.well-known/a2a-agent-card`, cached 5 min with prune-on-access eviction). When detected, `A2AClient.call()` sends via `message:send` format with response translation to the internal `{ response, conversation_id, can_continue }` shape; `end()` returns a synthetic `{ ended: true, summary: null }`. See `src/lib/client.js` (A2A-80).
+
 ## Testing
 
 Zero-dependency test runner at `test/run.js` with custom assert API. Three test tiers:
@@ -111,4 +121,4 @@ E2E test results are persisted to `~/.config/openclaw/test-results/` via `test/e
 
 ## Network Resilience
 
-The outbound A2A client (`src/lib/client.js`) retries transient network failures (ECONNRESET, ECONNREFUSED, EPIPE, ENOTFOUND, EAI_AGAIN, timeouts) with exponential backoff (0s, 1s, 2s). HTTP 4xx/5xx errors are not retried. All response accumulation is capped at 2MB to prevent OOM from malicious remotes.
+The outbound A2A client (`src/lib/client.js`) retries transient network failures (ECONNRESET, ECONNREFUSED, EPIPE, ENOTFOUND, EAI_AGAIN, timeouts) with exponential backoff (0s, 1s, 2s). HTTP 4xx/5xx errors are not retried. All response accumulation is capped at 2MB to prevent OOM from malicious remotes. These retry and size-cap mechanisms apply equally to Google A2A outbound calls via the same `withRetry()` and `handleSizeCappedResponse()` functions (A2A-80).
