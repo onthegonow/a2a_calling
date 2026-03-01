@@ -1,0 +1,17 @@
+{
+  "$schema": "https://unpkg.com/knip@5/schema.json",
+  "entry": [
+    "src/index.js",
+    "src/server.js",
+    "bin/cli.js",
+    "scripts/postinstall.js",
+    "scripts/install-openclaw.js",
+    "scripts/install-skills.js",
+    "scripts/cleanup.js",
+    "scripts/preuninstall.js",
+    "test/run.js"
+  ],
+  "project": ["src/**/*.js", "bin/**/*.js", "scripts/**/*.js", "test/**/*.js"],
+  "ignore": ["native/**"],
+  "ignoreDependencies": ["@biomejs/biome"]
+}
