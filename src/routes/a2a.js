@@ -12,6 +12,7 @@ const { TokenStore } = require('../lib/tokens');
 const crypto = require('crypto');
 const { createLogger, createTraceId } = require('../lib/logger');
 const { verifySignature, isTimestampValid, fingerprint } = require('../lib/crypto');
+const { buildAgentCard } = require('../lib/agent-card');
 const { isDirectLocalRequest } = require('../lib/local-request');
 
 // Lazy-load conversation store (optional dependency)
@@ -296,6 +297,30 @@ function createRoutes(options = {}) {
       response.public_key = options.publicKey;
     }
     res.json(response);
+  });
+
+  /**
+   * GET /agent-card
+   * Convenience mirror of /.well-known/a2a-agent-card (A2A-76)
+   */
+  router.get('/agent-card', (req, res) => {
+    const { A2AConfig } = require('../lib/config');
+    const { getTopicsForTier } = require('../lib/disclosure');
+    const cfg = new A2AConfig();
+    const agent = cfg.getAgent();
+    const manifest = getTopicsForTier('public');
+    const keypair = cfg.getKeypair();
+    const hostname = (agent && agent.hostname) || process.env.A2A_HOSTNAME || req.headers.host || 'localhost';
+    const protocol = req.protocol || 'https';
+    const card = buildAgentCard({
+      config: agent,
+      manifest,
+      publicKey: keypair ? keypair.publicKey : null,
+      serverUrl: `${protocol}://${hostname}`,
+      version: require('../../package.json').version
+    });
+    res.set('Cache-Control', 'public, max-age=3600');
+    res.json(card);
   });
 
   /**
