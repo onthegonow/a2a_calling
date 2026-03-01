@@ -2,7 +2,7 @@
 
 ## Logging
 
-Use the structured logger from `src/lib/logger.js`. Never use bare `console.log`.
+For runtime/server code under `src/`, use the structured logger from `src/lib/logger.js`. Keep bare `console.log`/`console.error` limited to CLI/setup/test entrypoints (for user-facing terminal output) and the logger sink implementation in `src/lib/logger.js`.
 
 ```js
 const { createLogger } = require('./logger');
@@ -46,7 +46,7 @@ Do NOT add new npm dependencies without explicit justification. Use Node.js buil
 
 ## Module Pattern
 
-All modules use CommonJS (`require`/`module.exports`). Each lib file exports a focused API. Large modules export a class (e.g., `TokenStore`, `ConversationStore`, `A2AClient`). Utility modules export functions.
+Runtime/server modules use CommonJS (`require`/`module.exports`). Each lib file exports a focused API. Large modules export a class (e.g., `TokenStore`, `ConversationStore`, `A2AClient`). Utility modules export functions. Tooling scripts in this repo currently use CommonJS as well; only introduce ESM if a host integration requires it, and keep module style consistent within a file.
 
 ## Naming
 
@@ -61,10 +61,10 @@ All modules use CommonJS (`require`/`module.exports`). Each lib file exports a f
 
 - Single-page app in `src/dashboard/public/`
 - Uses Shoelace web components (`<sl-*>` elements)
-- Communicates via fetch to `/dashboard/api/*` endpoints
+- Communicates via fetch to `/api/a2a/dashboard/*` endpoints
 - SSE for real-time updates via `src/lib/dashboard-events.js`
 - Dark theme is the default; uses CSS custom properties for theming
-- Sidebar navigation with tab switching (Contacts, Calls, Invites, Logs, Settings, Permissions, Health)
+- Sidebar navigation with panel switching (Contacts, Calls, Permissions, Invites, Logs, Health, Settings)
 - Permissions tab uses tier cards with tool toggles and auto-save
 - Drag-and-drop uses event delegation on stable parent containers (`.perm-sidebar` for sidebar items, zone containers for drop targets) — do NOT bind listeners directly to innerHTML-generated elements (A2A-61)
 
@@ -105,7 +105,13 @@ close() {
 
 ## Permission Tiers
 
-Tokens have a tier (`public`, `friends`, `family`) and a disclosure level (`public`, `minimal`, `none`). These are enforced at the route level in `src/routes/a2a.js`.
+Tokens carry a permissions tier (`public`, `friends`, `family`, `custom`). Disclosure policy is manifest-driven via `src/lib/disclosure.js` and tier inheritance in prompt/runtime paths.
+
+Do not add new logic that depends on `tier.disclosure` or `token.disclosure` fields; those fields were removed from the core tier/token model.
+
+## Local Request Detection (A2A-73)
+
+Use `isDirectLocalRequest(req)` from `src/lib/local-request.js` for admin/dashboard local-only checks. This helper validates loopback socket origin, localhost Host header, and absence of proxy-forwarding headers. Do NOT use raw `req.ip` comparison behind reverse proxies. The module also exports `isLoopbackAddress(ip)` for IP-only checks.
 
 ## Route Hardening (A2A-53)
 
@@ -135,9 +141,18 @@ All data stores implement retention cleanup following the `dashboard-events.js` 
 - Non-zero exit from `A2A_AGENT_COMMAND` throws an error with stderr context
 - The CI smoke lane (`a2atesting/a2acalling/scenarios/smoke-lane.js`) uses this mode
 
+## In-Memory Map Eviction (A2A-69)
+
+For in-memory Maps that accumulate entries over time (e.g., `claudeSessions` in `runtime-adapter.js`), use the prune-on-access pattern:
+- TTL eviction: delete entries older than a configurable threshold (checked via `updatedAt` timestamp)
+- Max-entry eviction: delete oldest entries first when Map exceeds a configurable max size
+- Prune runs at the start of the next operation (not on a timer) — zero overhead when idle
+- Both thresholds configurable via environment variables
+- Refresh `updatedAt` on every access to prevent evicting active entries
+
 ## Anti-Patterns
 
-- Do NOT use `console.log` — use the structured logger
+- Do NOT use `console.log` outside the logger sink in `src/lib/logger.js`
 - Do NOT add npm dependencies for things Node.js builtins handle
 - Do NOT create new error classes — use existing patterns
 - Do NOT hardcode config paths — use config resolution
