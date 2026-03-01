@@ -770,8 +770,8 @@ async function install() {
   const runtimeLine = forceStandalone
     ? 'Runtime forced to standalone mode for this setup run.'
     : hasOpenClawBinary
-    ? 'Runtime auto-selects OpenClaw when available and falls back to generic if needed.'
-    : 'Runtime defaults to generic fallback (no OpenClaw dependency required).';
+    ? 'Runtime auto-selects OpenClaw when available and falls back to test mode if needed.'
+    : 'Runtime defaults to test mode (no OpenClaw dependency required).';
 
   const { splitHostPort, isLocalOrUnroutableHost } = require('../src/lib/invite-host');
   const inviteParsed = splitHostPort(inviteHost);
@@ -890,10 +890,8 @@ ${standaloneBootstrap
   ${green(standaloneBootstrap.notifyScript)}
 
 Optional bridge wiring:
-  export A2A_RUNTIME=generic
+  export A2A_RUNTIME=test
   export A2A_AGENT_COMMAND="${standaloneBootstrap.turnScript}"
-  export A2A_SUMMARY_COMMAND="${standaloneBootstrap.summaryScript}"
-  export A2A_NOTIFY_COMMAND="${standaloneBootstrap.notifyScript}"
 ${standaloneBootstrap.generatedAdminToken ? `
 Suggested dashboard admin token (set in env, do not commit):
   export A2A_ADMIN_TOKEN="${standaloneBootstrap.generatedAdminToken}"` : ''}`
