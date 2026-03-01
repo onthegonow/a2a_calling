@@ -228,6 +228,73 @@ function createRoutes(options = {}) {
     } catch (_) {}
   }
 
+  // A2A-78: shared inbound auth pipeline for /invoke, /message:send, /end
+  // Returns { validation, identityVerified, publicKeyFingerprint } or sends error response and returns null
+  async function validateInboundAuth(req, res, reqLogger, endpoint) {
+    const withTracePayload = (payload) => ({ ...payload, trace_id: res.getHeader('x-trace-id'), request_id: res.getHeader('x-request-id') });
+
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      reqLogger.warn('Request missing bearer token', {
+        error_code: 'AUTH_MISSING_BEARER',
+        status_code: 401,
+        hint: 'Send Authorization: Bearer <a2a_token>.'
+      });
+      res.status(401).json(withTracePayload({
+        success: false,
+        error: 'missing_token',
+        message: 'Authorization header required'
+      }));
+      return null;
+    }
+
+    const token = authHeader.slice(7);
+    const validation = tokenStore.validate(token);
+    if (!validation.valid) {
+      reqLogger.warn('Token validation failed', {
+        error_code: 'TOKEN_INVALID_OR_EXPIRED',
+        status_code: 401,
+        hint: 'Create a fresh invite token and retry with the new bearer token.'
+      });
+      res.status(401).json(withTracePayload({
+        success: false,
+        error: 'unauthorized',
+        message: 'Invalid or expired token'
+      }));
+      return null;
+    }
+
+    const rateCheck = checkRateLimit(validation.id, limits);
+    if (rateCheck.limited) {
+      reqLogger.warn('Request rate limited', {
+        tokenId: validation.id,
+        error_code: 'TOKEN_RATE_LIMITED',
+        status_code: 429,
+        hint: 'Respect Retry-After and reduce invoke frequency for this token.',
+        data: { retry_after: rateCheck.retryAfter }
+      });
+      res.set('Retry-After', rateCheck.retryAfter);
+      res.status(429).json(withTracePayload({
+        success: false,
+        error: rateCheck.error,
+        message: rateCheck.message
+      }));
+      return null;
+    }
+
+    const sigCheck = verifySigHeaders(req, validation, endpoint, reqLogger);
+    if (sigCheck.error) {
+      res.status(sigCheck.error.status).json(withTracePayload(sigCheck.error.body));
+      return null;
+    }
+
+    return {
+      validation,
+      identityVerified: sigCheck.identityVerified,
+      publicKeyFingerprint: sigCheck.publicKeyFingerprint
+    };
+  }
+
   // A2A-52: shared signature verification helper for /invoke and /end
   function verifySigHeaders(req, validation, endpoint, reqLogger, withTracePayload) {
     const sigHeader = req.headers['x-a2a-signature'];
@@ -277,6 +344,73 @@ function createRoutes(options = {}) {
       reqLogger.warn('Signature verification error', { tokenId: validation.id, error_code: 'SIGNATURE_VERIFY_ERROR', status_code: 403, error: sigErr });
     }
     return result;
+  }
+
+  // A2A-78: Google A2A ↔ internal format translation
+  function translateGoogleToInternal(body) {
+    const msg = body?.message;
+    if (!msg || !Array.isArray(msg.parts) || msg.parts.length === 0) {
+      return { error: { status: 400, code: 'invalid_message', message: 'message.parts array is required and must not be empty' } };
+    }
+
+    const textParts = [];
+    let skippedNonText = 0;
+    for (const part of msg.parts) {
+      if (part?.content && typeof part.content.text === 'string') {
+        textParts.push(part.content.text);
+      } else {
+        skippedNonText++;
+      }
+    }
+
+    const message = textParts.join('\n');
+    if (!message) {
+      return { error: { status: 400, code: 'no_text_content', message: 'No text content in message parts' } };
+    }
+
+    const config = body.configuration || {};
+    const metadata = body.metadata || {};
+
+    return {
+      message,
+      conversation_id: msg.context_id || null,
+      caller: {
+        name: String(metadata.caller_name || '').slice(0, 100),
+        owner: String(metadata.caller_owner || '').slice(0, 100),
+        instance: String(metadata.caller_instance || '').slice(0, 200),
+        context: ''
+      },
+      timeout_seconds: Number(config.timeout_seconds) || 60,
+      blocking: config.blocking !== false,
+      skippedNonText
+    };
+  }
+
+  function translateInternalToGoogle(response, conversationId, tier, disclosure, callsRemaining) {
+    const canContinue = response.canContinue !== false;
+    const taskId = `task_${Date.now()}_${crypto.randomBytes(6).toString('hex')}`;
+    const messageId = `resp_${Date.now()}_${crypto.randomBytes(6).toString('hex')}`;
+
+    return {
+      task: {
+        id: taskId,
+        context_id: conversationId,
+        status: {
+          state: canContinue ? 'input-required' : 'completed',
+          message: {
+            message_id: messageId,
+            role: 'agent',
+            parts: [{ content: { text: response.text } }]
+          },
+          timestamp: new Date().toISOString()
+        },
+        metadata: {
+          'openclaw:tier': tier,
+          'openclaw:disclosure': disclosure,
+          'openclaw:calls_remaining': callsRemaining
+        }
+      }
+    };
   }
 
   /**
@@ -332,6 +466,238 @@ function createRoutes(options = {}) {
   });
 
   /**
+   * POST /message:send
+   * Google A2A protocol inbound endpoint (A2A-78)
+   * Accepts standard A2A wire format and translates to internal invoke.
+   * Registered on both escaped-colon and percent-encoded paths for compatibility.
+   */
+  async function handleMessageSend(req, res) {
+    const startedAt = Date.now();
+    const traceId = resolveTraceId(req);
+    const requestId = resolveRequestId(req);
+    const reqLogger = logger.child({ traceId, requestId, event: 'message_send' });
+    const withTracePayload = (payload) => ({ ...payload, trace_id: traceId, request_id: requestId });
+    res.set('x-trace-id', traceId);
+    res.set('x-request-id', requestId);
+    reqLogger.info('Received Google A2A message:send request', {
+      data: {
+        ip: req.ip,
+        request_id: requestId,
+        client_host: extractClientHost(req),
+        has_auth_header: Boolean(req.headers.authorization)
+      }
+    });
+
+    // Warn if non-blocking mode requested (not yet supported)
+    const bodyConfig = req.body?.configuration;
+    if (bodyConfig?.blocking === false) {
+      reqLogger.warn('Non-blocking mode requested but not supported', {
+        hint: 'Async task polling is not yet implemented. Request will be processed synchronously.'
+      });
+    }
+
+    // Auth pipeline (shared with /invoke)
+    const auth = await validateInboundAuth(req, res, reqLogger, '/api/a2a/message:send');
+    if (!auth) return;
+    const { validation, identityVerified, publicKeyFingerprint } = auth;
+
+    // Translate Google A2A format to internal
+    const translated = translateGoogleToInternal(req.body);
+    if (translated.error) {
+      reqLogger.warn('Google A2A message validation failed', {
+        tokenId: validation.id,
+        error_code: translated.error.code,
+        status_code: translated.error.status
+      });
+      return res.status(translated.error.status).json(withTracePayload({
+        success: false,
+        error: translated.error.code,
+        message: translated.error.message
+      }));
+    }
+
+    if (translated.skippedNonText > 0) {
+      reqLogger.debug('Skipped non-text parts in Google A2A message', {
+        tokenId: validation.id,
+        data: { skipped_count: translated.skippedNonText }
+      });
+    }
+
+    // Validate message length
+    if (translated.message.length > MAX_MESSAGE_LENGTH) {
+      reqLogger.warn('Google A2A message too long', {
+        tokenId: validation.id,
+        error_code: 'REQUEST_INVALID_MESSAGE',
+        status_code: 400,
+        data: { message_length: translated.message.length }
+      });
+      return res.status(400).json(withTracePayload({
+        success: false,
+        error: 'invalid_message',
+        message: `Message must be under ${MAX_MESSAGE_LENGTH} characters`
+      }));
+    }
+
+    const boundedTimeout = Math.max(MIN_TIMEOUT_SECONDS, Math.min(MAX_TIMEOUT_SECONDS, translated.timeout_seconds));
+
+    // Build a2a context (same as /invoke)
+    const isNewConversation = !translated.conversation_id;
+    const conversationId = translated.conversation_id || `conv_${Date.now()}_${crypto.randomBytes(6).toString('hex')}`;
+    const sanitizedCaller = translated.caller;
+
+    const a2aContext = {
+      mode: 'a2a',
+      token_id: validation.id,
+      token_name: validation.name,
+      tier: validation.tier,
+      capabilities: validation.capabilities,
+      allowed_topics: validation.allowed_topics,
+      allowed_goals: validation.allowed_goals,
+      allowed_tools: validation.allowed_tools,
+      timeout_ms: validation.timeout_ms,
+      caller: sanitizedCaller,
+      conversation_id: conversationId,
+      trace_id: traceId,
+      request_id: requestId,
+      identity_verified: identityVerified,
+      public_key_fingerprint: publicKeyFingerprint
+    };
+
+    // Ensure inbound caller exists as a contact
+    let ensuredContact = null;
+    try {
+      ensuredContact = tokenStore.ensureInboundContact(sanitizedCaller, validation.id);
+    } catch (_) {
+      ensuredContact = null;
+    }
+
+    // Track conversation if store available
+    if (convStore) {
+      try {
+        convStore.startConversation({
+          id: conversationId,
+          contactId: ensuredContact?.id || validation.id,
+          contactName: ensuredContact?.name || sanitizedCaller.name || validation.name,
+          tokenId: validation.id,
+          direction: 'inbound'
+        });
+        if (isNewConversation && eventStore && eventStore.isAvailable && eventStore.isAvailable()) {
+          eventStore.emitEvent('call.inbound', {
+            conversation_id: conversationId,
+            token_id: validation.id,
+            caller_name: sanitizedCaller.name || validation.name || null,
+            caller_owner: sanitizedCaller.owner || null
+          }, {
+            conversationId,
+            contactId: ensuredContact?.id || validation.id
+          });
+        }
+        if (monitor) {
+          monitor.trackActivity(conversationId, {
+            ...sanitizedCaller,
+            tier: validation.tier,
+            capabilities: validation.capabilities,
+            allowed_topics: validation.allowed_topics,
+            allowed_goals: validation.allowed_goals,
+            allowed_tools: validation.allowed_tools,
+            trace_id: traceId,
+            request_id: requestId
+          });
+        }
+        convStore.addMessage(conversationId, {
+          direction: 'inbound',
+          role: 'user',
+          content: translated.message
+        });
+      } catch (err) {
+        reqLogger.error('Conversation tracking error', {
+          conversationId,
+          tokenId: validation.id,
+          error_code: 'CONVERSATION_TRACKING_FAILED',
+          error: err
+        });
+      }
+    }
+
+    try {
+      const response = await handleMessage(translated.message, a2aContext, { timeout: boundedTimeout * 1000 });
+
+      // Store outgoing response
+      if (convStore) {
+        try {
+          convStore.addMessage(conversationId, {
+            direction: 'outbound',
+            role: 'assistant',
+            content: response.text
+          });
+        } catch (err) {
+          reqLogger.error('Message storage error', {
+            conversationId,
+            tokenId: validation.id,
+            error_code: 'CONVERSATION_MESSAGE_STORE_FAILED',
+            error: err
+          });
+        }
+      }
+
+      // Notify owner if configured
+      if (validation.notify !== 'none') {
+        notifyOwner({
+          level: validation.notify,
+          token: validation,
+          caller: sanitizedCaller,
+          message: translated.message,
+          response: response.text,
+          conversation_id: conversationId,
+          trace_id: traceId,
+          request_id: requestId
+        }).catch(err => {
+          reqLogger.error('Failed to notify owner', {
+            conversationId,
+            tokenId: validation.id,
+            error_code: 'OWNER_NOTIFY_FAILED',
+            error: err
+          });
+        });
+      }
+
+      reqLogger.info('Google A2A message:send completed', {
+        conversationId,
+        tokenId: validation.id,
+        data: {
+          duration_ms: Date.now() - startedAt,
+          message_length: translated.message.length,
+          is_new_conversation: isNewConversation
+        }
+      });
+
+      // Translate response to Google A2A Task format
+      const disclosure = validation.disclosure || 'minimal';
+      const googleResponse = translateInternalToGoogle(
+        response, conversationId, validation.tier, disclosure, validation.calls_remaining
+      );
+      res.json(googleResponse);
+
+    } catch (err) {
+      reqLogger.error('Message handling error', {
+        conversationId,
+        tokenId: validation.id,
+        error_code: 'MESSAGE_SEND_HANDLER_FAILED',
+        status_code: 500,
+        error: err,
+        data: { duration_ms: Date.now() - startedAt }
+      });
+      res.status(500).json(withTracePayload({
+        success: false,
+        error: 'internal_error',
+        message: 'Failed to process message'
+      }));
+    }
+  }
+  router.post('/message\\:send', handleMessageSend);
+  router.post('/message%3Asend', handleMessageSend);
+
+  /**
    * POST /invoke
    * Call the agent
    */
@@ -358,67 +724,10 @@ function createRoutes(options = {}) {
       data: normalizeRequestMetadata(req)
     });
 
-    // Extract token
-    const authHeader = req.headers.authorization;
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      reqLogger.warn('Invoke request missing bearer token', {
-        error_code: 'AUTH_MISSING_BEARER',
-        status_code: 401,
-        hint: 'Send Authorization: Bearer <a2a_token>.'
-      });
-      return res.status(401).json(withTracePayload({ 
-        success: false, 
-        error: 'missing_token', 
-        message: 'Authorization header required' 
-      }));
-    }
-
-    const token = authHeader.slice(7);
-
-    // Validate token
-    const validation = tokenStore.validate(token);
-    if (!validation.valid) {
-      // Use generic error to prevent token enumeration
-      // All invalid token states return same response
-      reqLogger.warn('Invoke token validation failed', {
-        error_code: 'TOKEN_INVALID_OR_EXPIRED',
-        status_code: 401,
-        hint: 'Create a fresh invite token and retry with the new bearer token.'
-      });
-      return res.status(401).json(withTracePayload({ 
-        success: false, 
-        error: 'unauthorized', 
-        message: 'Invalid or expired token' 
-      }));
-    }
-
-    // Check rate limit
-    const rateCheck = checkRateLimit(validation.id, limits);
-    if (rateCheck.limited) {
-      reqLogger.warn('Invoke request rate limited', {
-        tokenId: validation.id,
-        error_code: 'TOKEN_RATE_LIMITED',
-        status_code: 429,
-        hint: 'Respect Retry-After and reduce invoke frequency for this token.',
-        data: {
-          retry_after: rateCheck.retryAfter
-        }
-      });
-      res.set('Retry-After', rateCheck.retryAfter);
-      return res.status(429).json(withTracePayload({ 
-        success: false, 
-        error: rateCheck.error, 
-        message: rateCheck.message 
-      }));
-    }
-
-    // A2A-52: Ed25519 signature verification (after token auth, before message handling)
-    const sigCheck = verifySigHeaders(req, validation, '/api/a2a/invoke', reqLogger, withTracePayload);
-    if (sigCheck.error) {
-      return res.status(sigCheck.error.status).json(withTracePayload(sigCheck.error.body));
-    }
-    const identityVerified = sigCheck.identityVerified;
-    const publicKeyFingerprint = sigCheck.publicKeyFingerprint;
+    // Auth pipeline (shared with /message:send)
+    const auth = await validateInboundAuth(req, res, reqLogger, '/api/a2a/invoke');
+    if (!auth) return;
+    const { validation, identityVerified, publicKeyFingerprint } = auth;
 
     // Extract and validate request
     const { message, conversation_id, caller, context, timeout_seconds = 60 } = req.body;
