@@ -283,9 +283,15 @@ module.exports = function (test, assert, helpers) {
 
   // ── call() happy path ─────────────────────────────────────────
 
+  // A2A-80: helper to pre-seed Agent Card cache with null (no Agent Card)
+  // so call()/end() skip the Agent Card fetch and use proprietary format
+  function seedNoAgentCard(cache, port) {
+    cache.set(`127.0.0.1:${port}`, { card: null, cachedAt: Date.now() });
+  }
+
   test('call() returns parsed JSON on 200 response', async () => {
     delete require.cache[require.resolve('../../src/lib/client')];
-    const { A2AClient } = require('../../src/lib/client');
+    const { A2AClient, _agentCardCache } = require('../../src/lib/client');
 
     const srv = await startServer((req, res) => {
       let body = '';
@@ -296,6 +302,8 @@ module.exports = function (test, assert, helpers) {
       });
     });
 
+    seedNoAgentCard(_agentCardCache, srv.port);
+
     try {
       const client = new A2AClient({ _retryDelays: [0, 0, 0] });
       const result = await client.call(
@@ -305,6 +313,7 @@ module.exports = function (test, assert, helpers) {
       assert.equal(result.response, 'hello');
       assert.equal(result.conversation_id, 'conv_1');
     } finally {
+      _agentCardCache.clear();
       await srv.close();
     }
   });
@@ -313,7 +322,7 @@ module.exports = function (test, assert, helpers) {
 
   test('call() retries on ECONNRESET and succeeds on later attempt', async () => {
     delete require.cache[require.resolve('../../src/lib/client')];
-    const { A2AClient } = require('../../src/lib/client');
+    const { A2AClient, _agentCardCache } = require('../../src/lib/client');
 
     let requestCount = 0;
     const srv = await startServer((req, res) => {
@@ -331,6 +340,8 @@ module.exports = function (test, assert, helpers) {
       });
     });
 
+    seedNoAgentCard(_agentCardCache, srv.port);
+
     try {
       const client = new A2AClient({ _retryDelays: [0, 0, 0] });
       const result = await client.call(
@@ -341,13 +352,14 @@ module.exports = function (test, assert, helpers) {
       assert.equal(result.attempt, 3);
       assert.equal(requestCount, 3);
     } finally {
+      _agentCardCache.clear();
       await srv.close();
     }
   });
 
   test('call() exhausts retries and throws on persistent ECONNRESET', async () => {
     delete require.cache[require.resolve('../../src/lib/client')];
-    const { A2AClient } = require('../../src/lib/client');
+    const { A2AClient, _agentCardCache } = require('../../src/lib/client');
 
     let requestCount = 0;
     const srv = await startServer((req, res) => {
@@ -355,6 +367,8 @@ module.exports = function (test, assert, helpers) {
       // Always destroy socket — never respond
       req.socket.destroy();
     });
+
+    seedNoAgentCard(_agentCardCache, srv.port);
 
     try {
       const client = new A2AClient({ _retryDelays: [0, 0, 0] });
@@ -372,6 +386,7 @@ module.exports = function (test, assert, helpers) {
       // 4 attempts: 1 initial + 3 retries
       assert.equal(requestCount, 4);
     } finally {
+      _agentCardCache.clear();
       await srv.close();
     }
   });
@@ -380,7 +395,7 @@ module.exports = function (test, assert, helpers) {
 
   test('call() does NOT retry on HTTP 400', async () => {
     delete require.cache[require.resolve('../../src/lib/client')];
-    const { A2AClient } = require('../../src/lib/client');
+    const { A2AClient, _agentCardCache } = require('../../src/lib/client');
 
     let requestCount = 0;
     const srv = await startServer((req, res) => {
@@ -392,6 +407,8 @@ module.exports = function (test, assert, helpers) {
         res.end(JSON.stringify({ error: 'bad_request', message: 'Invalid payload' }));
       });
     });
+
+    seedNoAgentCard(_agentCardCache, srv.port);
 
     try {
       const client = new A2AClient({ _retryDelays: [0, 0, 0] });
@@ -410,13 +427,14 @@ module.exports = function (test, assert, helpers) {
       // Exactly 1 request — no retry for HTTP errors
       assert.equal(requestCount, 1);
     } finally {
+      _agentCardCache.clear();
       await srv.close();
     }
   });
 
   test('call() does NOT retry on HTTP 500', async () => {
     delete require.cache[require.resolve('../../src/lib/client')];
-    const { A2AClient } = require('../../src/lib/client');
+    const { A2AClient, _agentCardCache } = require('../../src/lib/client');
 
     let requestCount = 0;
     const srv = await startServer((req, res) => {
@@ -428,6 +446,8 @@ module.exports = function (test, assert, helpers) {
         res.end(JSON.stringify({ error: 'internal_error', message: 'Server failed' }));
       });
     });
+
+    seedNoAgentCard(_agentCardCache, srv.port);
 
     try {
       const client = new A2AClient({ _retryDelays: [0, 0, 0] });
@@ -445,6 +465,7 @@ module.exports = function (test, assert, helpers) {
       assert.ok(threw, 'Expected 500 to throw');
       assert.equal(requestCount, 1);
     } finally {
+      _agentCardCache.clear();
       await srv.close();
     }
   });
@@ -453,7 +474,7 @@ module.exports = function (test, assert, helpers) {
 
   test('call() rejects with response_too_large when response exceeds 2MB', async () => {
     delete require.cache[require.resolve('../../src/lib/client')];
-    const { A2AClient, _MAX_RESPONSE_BYTES } = require('../../src/lib/client');
+    const { A2AClient, _MAX_RESPONSE_BYTES, _agentCardCache } = require('../../src/lib/client');
 
     const srv = await startServer((req, res) => {
       let body = '';
@@ -470,6 +491,8 @@ module.exports = function (test, assert, helpers) {
       });
     });
 
+    seedNoAgentCard(_agentCardCache, srv.port);
+
     try {
       const client = new A2AClient({ _retryDelays: [0, 0, 0] });
       let threw = false;
@@ -485,6 +508,7 @@ module.exports = function (test, assert, helpers) {
       }
       assert.ok(threw, 'Expected response_too_large error');
     } finally {
+      _agentCardCache.clear();
       await srv.close();
     }
   });
@@ -493,7 +517,7 @@ module.exports = function (test, assert, helpers) {
 
   test('end() returns parsed JSON on 200 response', async () => {
     delete require.cache[require.resolve('../../src/lib/client')];
-    const { A2AClient } = require('../../src/lib/client');
+    const { A2AClient, _agentCardCache } = require('../../src/lib/client');
 
     const srv = await startServer((req, res) => {
       let body = '';
@@ -505,6 +529,8 @@ module.exports = function (test, assert, helpers) {
       });
     });
 
+    seedNoAgentCard(_agentCardCache, srv.port);
+
     try {
       const client = new A2AClient({ _retryDelays: [0, 0, 0] });
       const result = await client.end(
@@ -514,13 +540,14 @@ module.exports = function (test, assert, helpers) {
       assert.equal(result.ended, true);
       assert.equal(result.summary, 'Call concluded');
     } finally {
+      _agentCardCache.clear();
       await srv.close();
     }
   });
 
   test('end() retries on ECONNRESET and succeeds', async () => {
     delete require.cache[require.resolve('../../src/lib/client')];
-    const { A2AClient } = require('../../src/lib/client');
+    const { A2AClient, _agentCardCache } = require('../../src/lib/client');
 
     let requestCount = 0;
     const srv = await startServer((req, res) => {
@@ -537,6 +564,8 @@ module.exports = function (test, assert, helpers) {
       });
     });
 
+    seedNoAgentCard(_agentCardCache, srv.port);
+
     try {
       const client = new A2AClient({ _retryDelays: [0, 0, 0] });
       const result = await client.end(
@@ -546,13 +575,14 @@ module.exports = function (test, assert, helpers) {
       assert.equal(result.ended, true);
       assert.equal(requestCount, 2);
     } finally {
+      _agentCardCache.clear();
       await srv.close();
     }
   });
 
   test('end() response size cap rejects oversized response', async () => {
     delete require.cache[require.resolve('../../src/lib/client')];
-    const { A2AClient, _MAX_RESPONSE_BYTES } = require('../../src/lib/client');
+    const { A2AClient, _MAX_RESPONSE_BYTES, _agentCardCache } = require('../../src/lib/client');
 
     const srv = await startServer((req, res) => {
       let body = '';
@@ -568,6 +598,8 @@ module.exports = function (test, assert, helpers) {
       });
     });
 
+    seedNoAgentCard(_agentCardCache, srv.port);
+
     try {
       const client = new A2AClient({ _retryDelays: [0, 0, 0] });
       let threw = false;
@@ -582,6 +614,7 @@ module.exports = function (test, assert, helpers) {
       }
       assert.ok(threw, 'Expected response_too_large for end()');
     } finally {
+      _agentCardCache.clear();
       await srv.close();
     }
   });
@@ -798,7 +831,7 @@ module.exports = function (test, assert, helpers) {
 
   test('call() sends Authorization header and JSON body', async () => {
     delete require.cache[require.resolve('../../src/lib/client')];
-    const { A2AClient } = require('../../src/lib/client');
+    const { A2AClient, _agentCardCache } = require('../../src/lib/client');
 
     let capturedHeaders = {};
     let capturedBody = '';
@@ -812,6 +845,8 @@ module.exports = function (test, assert, helpers) {
         res.end(JSON.stringify({ ok: true }));
       });
     });
+
+    seedNoAgentCard(_agentCardCache, srv.port);
 
     try {
       const client = new A2AClient({
@@ -832,6 +867,7 @@ module.exports = function (test, assert, helpers) {
       assert.equal(parsed.timeout_seconds, 30);
       assert.equal(parsed.caller.name, 'TestBot');
     } finally {
+      _agentCardCache.clear();
       await srv.close();
     }
   });
@@ -840,10 +876,9 @@ module.exports = function (test, assert, helpers) {
 
   test('call() retries on ECONNREFUSED', async () => {
     delete require.cache[require.resolve('../../src/lib/client')];
-    const { A2AClient } = require('../../src/lib/client');
+    const { A2AClient, _agentCardCache } = require('../../src/lib/client');
 
     // Get a port, then close the server so ECONNREFUSED happens
-    let requestCount = 0;
     const tempSrv = net.createServer();
     const port = await new Promise((resolve) => {
       tempSrv.listen(0, '127.0.0.1', () => {
@@ -852,6 +887,8 @@ module.exports = function (test, assert, helpers) {
     });
     // Close to guarantee ECONNREFUSED
     await new Promise((resolve) => tempSrv.close(resolve));
+
+    seedNoAgentCard(_agentCardCache, port);
 
     const client = new A2AClient({ _retryDelays: [0, 0, 0] });
     let threw = false;
@@ -866,5 +903,6 @@ module.exports = function (test, assert, helpers) {
       assert.includes(err.message, 'ECONNREFUSED');
     }
     assert.ok(threw, 'Expected ECONNREFUSED error after exhausting retries');
+    _agentCardCache.clear();
   });
 };
