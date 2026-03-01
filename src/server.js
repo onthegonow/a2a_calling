@@ -28,6 +28,7 @@ const { A2AConfig } = require('./lib/config');
 const { UpdateManager } = require('./lib/update-manager');
 const { DashboardEventStore } = require('./lib/dashboard-events');
 const { CallbookStore } = require('./lib/callbook');
+const { buildAgentCard } = require('./lib/agent-card');
 const { spawn } = require('child_process');
 const { resolveTurnTimeoutMs } = require('./lib/turn-timeout');
 
@@ -967,6 +968,24 @@ app.use('/api/a2a', createRoutes({
   summarizer: generateSummary,
   notifyOwner
 }));
+
+// A2A-76: Google A2A Agent Card — dynamically generated from config + disclosure
+app.get('/.well-known/a2a-agent-card', (req, res) => {
+  const agent = config.getAgent();
+  const manifest = getTopicsForTier('public');
+  const keypair = config.getKeypair();
+  const hostname = (agent && agent.hostname) || process.env.A2A_HOSTNAME || req.headers.host || 'localhost';
+  const protocol = req.protocol || 'https';
+  const card = buildAgentCard({
+    config: { ...agent, owner: agentContext.owner },
+    manifest,
+    publicKey: keypair ? keypair.publicKey : null,
+    serverUrl: `${protocol}://${hostname}`,
+    version: require('../package.json').version
+  });
+  res.set('Cache-Control', 'public, max-age=3600');
+  res.json(card);
+});
 
 app.get('/', (req, res) => {
   res.json({ service: 'a2a', status: 'ok', agent: agentContext.name });
