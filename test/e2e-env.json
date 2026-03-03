@@ -1,0 +1,16 @@
+{
+  "port": 3099,
+  "health_check": "http://127.0.0.1:3099/api/a2a/status",
+  "health_timeout": 15,
+  "setup": [
+    "mkdir -p /tmp/a2a-e2e-env/config"
+  ],
+  "start_command": "A2A_CONFIG_DIR=/tmp/a2a-e2e-env/config A2A_RUNTIME=test PORT=3099 nohup node src/server.js > /tmp/a2a-e2e-env/server.log 2>&1 &",
+  "stop_command": "A2A_CONFIG_DIR=/tmp/a2a-e2e-env/config node -e \"require('./src/lib/pid-file').killExistingServer()\"",
+  "teardown": [
+    "rm -rf /tmp/a2a-e2e-env"
+  ],
+  "test_commands": [
+    "node test/run.js --e2e"
+  ]
+}
