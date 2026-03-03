@@ -11,3 +11,10 @@ package-lock.json
 
 # Don't commit test tokens
 a2a.json
+
+# Coverage reports
+coverage/
+.c8_output/
+
+# Serena MCP local config (MAE-52)
+.serena/

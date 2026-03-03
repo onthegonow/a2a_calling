@@ -11,6 +11,7 @@
     "postinstall": "node scripts/postinstall.js",
     "start": "node src/server.js",
     "test": "node test/run.js",
+    "test:coverage": "c8 node test/run.js",
     "lint": "biome lint src/",
     "lint:check": "biome check src/",
     "knip": "knip"
@@ -42,6 +43,7 @@
   },
   "devDependencies": {
     "@biomejs/biome": "^2.4.4",
+    "c8": "^11.0.0",
     "eslint": "^10.0.2",
     "eslint-plugin-sonarjs": "^4.0.0",
     "knip": "^5.85.0"
