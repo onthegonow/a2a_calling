@@ -1,0 +1,16 @@
+{
+  "all": true,
+  "src": ["src/"],
+  "exclude": [
+    "test/**",
+    "node_modules/**",
+    "native/**",
+    "a2atesting/**",
+    "scripts/**",
+    "bin/**",
+    "docs/**",
+    "src/dashboard/public/**"
+  ],
+  "reporter": ["text", "html"],
+  "report-dir": "coverage"
+}
