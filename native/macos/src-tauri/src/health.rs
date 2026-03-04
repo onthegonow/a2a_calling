@@ -18,6 +18,10 @@ pub fn set_connected(port: u16) {
     CONNECTED.store(true, Ordering::Relaxed);
 }
 
+pub fn set_disconnected() {
+    CONNECTED.store(false, Ordering::Relaxed);
+}
+
 /// Start background health check loop — emits "server-status" events
 pub fn start_health_monitor(app: tauri::AppHandle) {
     tauri::async_runtime::spawn(async move {

@@ -27,6 +27,17 @@ fn start_server(app: tauri::AppHandle) -> Result<server::StartResult, String> {
     Ok(server::start_sidecar(&app))
 }
 
+#[tauri::command]
+fn restart_server(app: tauri::AppHandle) -> Result<server::StartResult, String> {
+    let result = server::restart_sidecar(&app);
+    if result.success {
+        if let Some(port) = result.port {
+            health::set_connected(port);
+        }
+    }
+    Ok(result)
+}
+
 fn build_menu(app: &tauri::AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
     let about = PredefinedMenuItem::about(app, Some("About A2A Callbook"), Some(AboutMetadata {
         name: Some("A2A Callbook".into()),
@@ -50,9 +61,10 @@ fn build_menu(app: &tauri::AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
     let logs = MenuItem::with_id(app, "tab-logs", "Logs", true, Some("CmdOrCtrl+5"))?;
     let sep2 = PredefinedMenuItem::separator(app)?;
     let refresh = MenuItem::with_id(app, "refresh", "Refresh", true, Some("CmdOrCtrl+R"))?;
+    let restart = MenuItem::with_id(app, "restart-server", "Restart Server", true, None::<&str>)?;
 
     let view_menu = Submenu::with_items(app, "View", true, &[
-        &contacts, &calls, &settings, &invites, &logs, &sep2, &refresh,
+        &contacts, &calls, &settings, &invites, &logs, &sep2, &refresh, &restart,
     ])?;
 
     // Edit menu (standard macOS)
@@ -80,7 +92,7 @@ pub fn run() {
         .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_window_state::Builder::new().build())
         .manage(server::SidecarState::new())
-        .invoke_handler(tauri::generate_handler![discover_server, start_server])
+        .invoke_handler(tauri::generate_handler![discover_server, start_server, restart_server])
         .setup(|app| {
             let menu = build_menu(app.handle())?;
             app.set_menu(menu)?;
@@ -99,6 +111,15 @@ pub fn run() {
                     "refresh" => {
                         if let Some(window) = app_handle.get_webview_window("main") {
                             let _ = window.eval("window.location.reload()");
+                        }
+                        None
+                    }
+                    "restart-server" => {
+                        let result = server::restart_sidecar(&app_handle);
+                        if result.success {
+                            if let Some(port) = result.port {
+                                health::set_connected(port);
+                            }
                         }
                         None
                     }
