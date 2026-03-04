@@ -9,8 +9,13 @@ mod notifications;
 mod server;
 
 #[tauri::command]
-async fn discover_server() -> Result<discovery::DiscoveryResult, String> {
-    let result = discovery::discover_server().await;
+async fn discover_server(app: tauri::AppHandle) -> Result<discovery::DiscoveryResult, String> {
+    let sidecar_port = app
+        .try_state::<server::SidecarState>()
+        .map(|state| state.port())
+        .filter(|&p| p > 0);
+
+    let result = discovery::discover_server(sidecar_port).await;
     if let Some(port) = result.port {
         health::set_connected(port);
     }
@@ -18,8 +23,8 @@ async fn discover_server() -> Result<discovery::DiscoveryResult, String> {
 }
 
 #[tauri::command]
-fn start_server() -> Result<server::StartResult, String> {
-    Ok(server::start_server())
+fn start_server(app: tauri::AppHandle) -> Result<server::StartResult, String> {
+    Ok(server::start_sidecar(&app))
 }
 
 fn build_menu(app: &tauri::AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
@@ -74,6 +79,7 @@ pub fn run() {
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_window_state::Builder::new().build())
+        .manage(server::SidecarState::new())
         .invoke_handler(tauri::generate_handler![discover_server, start_server])
         .setup(|app| {
             let menu = build_menu(app.handle())?;
@@ -106,6 +112,14 @@ pub fn run() {
                     }
                 }
             });
+
+            // Start the bundled A2A server sidecar
+            let start_result = server::start_sidecar(app.handle());
+            if start_result.success {
+                if let Some(port) = start_result.port {
+                    health::set_connected(port);
+                }
+            }
 
             // Start background health monitor
             health::start_health_monitor(app.handle().clone());
@@ -173,13 +187,19 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error building A2A Callbook");
 
-    // Cmd+W hides window instead of quitting
+    // Cmd+W hides window instead of quitting; kill sidecar on exit
     app.run(|app_handle, event| {
-        if let RunEvent::WindowEvent { label, event: WindowEvent::CloseRequested { api, .. }, .. } = &event {
-            api.prevent_close();
-            if let Some(window) = app_handle.get_webview_window(label) {
-                let _ = window.hide();
+        match &event {
+            RunEvent::WindowEvent { label, event: WindowEvent::CloseRequested { api, .. }, .. } => {
+                api.prevent_close();
+                if let Some(window) = app_handle.get_webview_window(label) {
+                    let _ = window.hide();
+                }
             }
+            RunEvent::Exit => {
+                server::kill_sidecar(app_handle);
+            }
+            _ => {}
         }
     });
 }
