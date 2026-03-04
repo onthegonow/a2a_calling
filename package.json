@@ -14,7 +14,8 @@
     "test:coverage": "c8 node test/run.js",
     "lint": "biome lint src/",
     "lint:check": "biome check src/",
-    "knip": "knip"
+    "knip": "knip",
+    "build:standalone": "bash scripts/build-standalone.sh"
   },
   "keywords": [
     "openclaw",
@@ -42,6 +43,7 @@
     "express": "^4.21.0"
   },
   "devDependencies": {
+    "@yao-pkg/pkg": "^6.0.0",
     "@biomejs/biome": "^2.4.4",
     "c8": "^11.0.0",
     "eslint": "^10.0.2",
