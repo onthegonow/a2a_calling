@@ -11,6 +11,16 @@
     "notification:allow-request-permission",
     "notification:allow-notify",
     "deep-link:default",
-    "window-state:default"
+    "window-state:default",
+    {
+      "identifier": "shell:allow-execute",
+      "allow": [
+        {
+          "name": "binaries/a2a-server",
+          "sidecar": true,
+          "args": true
+        }
+      ]
+    }
   ]
 }

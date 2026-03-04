@@ -139,11 +139,22 @@ async fn probe_port(port: u16) -> bool {
     false
 }
 
-/// Discover the running a2a server
-pub async fn discover_server() -> DiscoveryResult {
+/// Discover the running a2a server.
+/// If `sidecar_port` is provided, check it first before config/scan fallback.
+pub async fn discover_server(sidecar_port: Option<u16>) -> DiscoveryResult {
+    // 0. Check sidecar port first (highest priority)
+    if let Some(port) = sidecar_port {
+        if probe_port(port).await {
+            return DiscoveryResult {
+                port: Some(port),
+                source: "sidecar".to_string(),
+            };
+        }
+    }
+
     let config_ports = read_config_ports();
 
-    // 1. Try config-derived ports first
+    // 1. Try config-derived ports
     for &port in &config_ports {
         if probe_port(port).await {
             return DiscoveryResult {
