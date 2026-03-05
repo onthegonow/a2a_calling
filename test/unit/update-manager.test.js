@@ -36,7 +36,8 @@ module.exports = function (test, assert) {
     const originalFetch = global.fetch;
     global.fetch = async () => ({ ok: true, json: async () => ({ version: '0.6.46' }) });
     try {
-      await manager.triggerCheck({ reason: 'test' });
+      // A2A-98: Force a check in CI so interval gating does not skip update detection.
+      await manager.triggerCheck({ reason: 'test', forceCheck: true });
       const status = manager.getStatus();
       assert.equal(status.state, 'waiting_for_safe_restart');
       assert.equal(status.target_version, '0.6.46');
@@ -47,4 +48,3 @@ module.exports = function (test, assert) {
     }
   });
 };
-
