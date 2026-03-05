@@ -15,7 +15,8 @@
     "lint": "biome lint src/",
     "lint:check": "biome check src/",
     "knip": "knip",
-    "build:standalone": "bash scripts/build-standalone.sh"
+    "build:standalone": "bash scripts/build-standalone.sh",
+    "build:sync-version": "bash scripts/sync-version.sh"
   },
   "keywords": [
     "openclaw",
