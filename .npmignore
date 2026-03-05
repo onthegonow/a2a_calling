@@ -14,3 +14,8 @@ AGENTS.md
 CLAUDE.md
 .github/
 a2atesting/
+
+# Local build artifacts (large, machine-specific)
+.maestro/
+native/macos/src-tauri/target/
+native/macos/src-tauri/gen/
