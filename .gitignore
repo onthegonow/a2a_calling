@@ -18,3 +18,8 @@ coverage/
 
 # Serena MCP local config (MAE-52)
 .serena/
+
+# Signing certificates - NEVER commit
+native/macos/certs/
+*.cer
+*.p12
