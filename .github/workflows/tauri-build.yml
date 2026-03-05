@@ -9,16 +9,42 @@ on:
 jobs:
   build-macos:
     runs-on: macos-14
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+          cache: npm
+
+      - name: Install npm dependencies
+        run: npm ci
+
+      - name: Sync native app version
+        # A2A-95: keep Tauri bundle version aligned with npm package release version.
+        run: npm run build:sync-version
+
+      - name: Run test suite
+        run: npm test
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-apple-darwin,x86_64-apple-darwin
 
+      - name: Cache Rust artifacts
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: native/macos/src-tauri
+
       - name: Install Tauri CLI
         run: cargo install tauri-cli --version "^2"
+
+      - name: Build standalone server binaries
+        # A2A-95: ship target-specific sidecar binaries before Tauri bundle assembly.
+        run: bash scripts/build-standalone.sh --universal
 
       - name: Validate Apple signing secrets
         run: |
@@ -79,7 +105,7 @@ jobs:
 
       - name: Package artifacts
         run: |
-          VERSION=${GITHUB_REF_NAME#v}
+          VERSION="$(node -p \"require('./package.json').version\")"
           cd native/macos/src-tauri/target/universal-apple-darwin/release/bundle
 
           # Create tar.gz of .app for postinstall download
