@@ -96,6 +96,17 @@ Single-page app served from `src/dashboard/public/`. Uses Shoelace web component
 
 Tauri v2 app at `native/macos/` wrapping the dashboard SPA. Provides native menus, notifications, and server lifecycle management.
 
+Runtime behavior:
+- App startup uses a sidecar-first strategy (`app.shell().sidecar("a2a-server")`) from `native/macos/src-tauri/src/server.rs`
+- If sidecar spawn fails, it falls back to starting an external `a2a` CLI process
+- Sidecar exits are monitored with bounded auto-restart and exponential backoff (up to 5 consecutive crashes)
+- Sidecar logs are bridged to the UI via emitted events
+
+Packaging:
+- The standalone server binary is built from `src/server.js` via `scripts/build-standalone.sh` using `@yao-pkg/pkg`
+- Output binaries live at `native/macos/src-tauri/binaries/a2a-server-*`
+- Tauri release builds bundle the app artifacts (`.dmg`, `.app.tar.gz`) via `.github/workflows/tauri-build.yml`
+
 ## Identity Verification
 
 Ed25519 cryptographic identity for agents. Each instance generates a keypair on first run (stored in config). Outbound calls sign messages; inbound calls verify signatures. Uses Node.js built-in `crypto.sign`/`crypto.verify` — no external dependencies. See `src/lib/crypto.js`.

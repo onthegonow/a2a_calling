@@ -150,6 +150,15 @@ For in-memory Maps that accumulate entries over time (e.g., `claudeSessions` in 
 - Both thresholds configurable via environment variables
 - Refresh `updatedAt` on every access to prevent evicting active entries
 
+## Native App Sidecar Lifecycle (A2A-93, A2A-96)
+
+For native macOS server process management in `native/macos/src-tauri/src/server.rs`:
+- Start with sidecar first (`a2a-server` bundled binary), then fall back to external `a2a` only if sidecar fails
+- Track child process state in shared `SidecarState` and clear dead children on exit
+- Use exponential backoff for restart attempts and enforce a hard crash cap to avoid restart loops
+- Emit status/log events to the frontend for observability; do not silently retry in background
+- During shutdown, set explicit shutdown state to prevent unintended auto-restart
+
 ## Anti-Patterns
 
 - Do NOT use `console.log` outside the logger sink in `src/lib/logger.js`

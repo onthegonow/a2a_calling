@@ -102,12 +102,24 @@ cargo tauri dev
 cargo tauri build
 ```
 
+### Sidecar server packaging
+The native app expects a bundled standalone server binary named `a2a-server` under
+`native/macos/src-tauri/binaries/`. Build it with:
+
+```bash
+# Build for host arch
+bash scripts/build-standalone.sh
+
+# Build universal (arm64 + x64)
+bash scripts/build-standalone.sh --universal
+```
+
 ### Key files
 - `native/macos/src-tauri/src/lib.rs` - App entry, menus, event handling
 - `native/macos/src-tauri/src/discovery.rs` - Port scanning / server detection
 - `native/macos/src-tauri/src/health.rs` - Background health monitor
 - `native/macos/src-tauri/src/notifications.rs` - macOS notification bridge
-- `native/macos/src-tauri/src/server.rs` - Server lifecycle (start/stop)
+- `native/macos/src-tauri/src/server.rs` - Sidecar-first server lifecycle with external fallback and crash backoff
 - `native/macos/index.html` - Loading page (shown before server found)
 
 ## Testing
