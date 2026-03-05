@@ -46,6 +46,9 @@ jobs:
         # A2A-95: ship target-specific sidecar binaries before Tauri bundle assembly.
         run: bash scripts/build-standalone.sh --universal
 
+      - name: Smoke test standalone binary
+        run: bash scripts/smoke-test-standalone.sh
+
       - name: Validate Apple signing secrets
         run: |
           # A2A-94: signing + notarization must fail closed if release credentials are missing.
@@ -86,6 +89,8 @@ jobs:
 
       - name: Verify notarized artifacts
         run: |
+          bash scripts/verify-app-bundle.sh
+
           APP_PATH="native/macos/src-tauri/target/universal-apple-darwin/release/bundle/macos/A2A Callbook.app"
           DMG_PATH=$(ls native/macos/src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg | head -n 1)
 
