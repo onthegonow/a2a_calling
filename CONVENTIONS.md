@@ -159,6 +159,14 @@ For native macOS server process management in `native/macos/src-tauri/src/server
 - Emit status/log events to the frontend for observability; do not silently retry in background
 - During shutdown, set explicit shutdown state to prevent unintended auto-restart
 
+## Native Onboarding Wizard (A2A-99)
+
+The onboarding wizard at `/api/a2a/dashboard/onboarding` runs on fresh installs (no `a2a-config.json`). Key patterns:
+- Wizard routes (`/onboarding`, `/onboarding/status`, `/onboarding/complete`, `/onboarding/detect-port`) are placed BEFORE `ensureDashboardAccess` middleware — they must work without auth
+- Config/disclosure writes use existing `A2AConfig` and `disclosure.js` APIs — do not duplicate validation
+- `DiscoveryResult` in `discovery.rs` includes `onboarding_complete: bool` to let `native/macos/index.html` route to wizard vs dashboard
+- Topics selected in the wizard populate the `public` tier only — users refine per-tier topics in Settings
+
 ## Anti-Patterns
 
 - Do NOT use `console.log` outside the logger sink in `src/lib/logger.js`
