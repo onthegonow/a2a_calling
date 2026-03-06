@@ -15,6 +15,7 @@
     "lint": "biome lint src/",
     "lint:check": "biome check src/",
     "knip": "knip",
+    "test:e2e:standalone": "node test/run.js --e2e --filter standalone",
     "build:standalone": "bash scripts/build-standalone.sh",
     "build:sync-version": "bash scripts/sync-version.sh"
   },
