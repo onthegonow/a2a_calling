@@ -9,6 +9,7 @@ const PROBE_TIMEOUT: Duration = Duration::from_millis(800);
 pub struct DiscoveryResult {
     pub port: Option<u16>,
     pub source: String, // "config" | "scan" | "none"
+    pub onboarding_complete: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -21,6 +22,8 @@ struct A2AConfig {
 struct OnboardingConfig {
     #[serde(alias = "serverPort")]
     server_port: Option<u16>,
+    step: Option<String>,
+    version: Option<u16>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -104,6 +107,34 @@ pub fn read_config_ports() -> Vec<u16> {
     ports
 }
 
+/// Check if onboarding has been completed by reading config.
+pub fn is_onboarding_complete() -> bool {
+    let config_dir = std::env::var("A2A_CONFIG_DIR")
+        .or_else(|_| std::env::var("OPENCLAW_CONFIG_DIR"))
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| {
+            dirs::home_dir()
+                .unwrap_or_else(|| PathBuf::from("/tmp"))
+                .join(".config")
+                .join("openclaw")
+        });
+
+    let config_path = config_dir.join("a2a-config.json");
+    let content = match std::fs::read_to_string(config_path) {
+        Ok(data) => data,
+        Err(_) => return false,
+    };
+    let config: A2AConfig = match serde_json::from_str(&content) {
+        Ok(parsed) => parsed,
+        Err(_) => return false,
+    };
+
+    config
+        .onboarding
+        .map(|ob| ob.version == Some(2) && ob.step.as_deref() == Some("complete"))
+        .unwrap_or(false)
+}
+
 /// Probe a single port — returns true if a2a server responds
 async fn probe_port(port: u16) -> bool {
     let client = reqwest::Client::builder()
@@ -142,12 +173,15 @@ async fn probe_port(port: u16) -> bool {
 /// Discover the running a2a server.
 /// If `sidecar_port` is provided, check it first before config/scan fallback.
 pub async fn discover_server(sidecar_port: Option<u16>) -> DiscoveryResult {
+    let onboarding_complete = is_onboarding_complete();
+
     // 0. Check sidecar port first (highest priority)
     if let Some(port) = sidecar_port {
         if probe_port(port).await {
             return DiscoveryResult {
                 port: Some(port),
                 source: "sidecar".to_string(),
+                onboarding_complete,
             };
         }
     }
@@ -160,6 +194,7 @@ pub async fn discover_server(sidecar_port: Option<u16>) -> DiscoveryResult {
             return DiscoveryResult {
                 port: Some(port),
                 source: "config".to_string(),
+                onboarding_complete,
             };
         }
     }
@@ -173,6 +208,7 @@ pub async fn discover_server(sidecar_port: Option<u16>) -> DiscoveryResult {
             return DiscoveryResult {
                 port: Some(port),
                 source: "scan".to_string(),
+                onboarding_complete,
             };
         }
     }
@@ -180,5 +216,6 @@ pub async fn discover_server(sidecar_port: Option<u16>) -> DiscoveryResult {
     DiscoveryResult {
         port: None,
         source: "none".to_string(),
+        onboarding_complete,
     }
 }
