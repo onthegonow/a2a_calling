@@ -21,22 +21,22 @@ async function createStandaloneEnv(opts = {}) {
 
   // Bust module caches so each test gets fresh state
   const cacheBust = [
-    '../../src/routes/dashboard',
-    '../../src/lib/logger',
-    '../../src/lib/tokens',
-    '../../src/lib/config',
-    '../../src/lib/disclosure',
-    '../../src/lib/conversations',
-    '../../src/lib/callbook',
-    '../../src/lib/dashboard-events'
+    '../../../src/routes/dashboard',
+    '../../../src/lib/logger',
+    '../../../src/lib/tokens',
+    '../../../src/lib/config',
+    '../../../src/lib/disclosure',
+    '../../../src/lib/conversations',
+    '../../../src/lib/callbook',
+    '../../../src/lib/dashboard-events'
   ];
   for (const mod of cacheBust) {
     try { delete require.cache[require.resolve(mod)]; } catch (_) {}
   }
 
   const express = require('express');
-  const { createDashboardApiRouter } = require('../../src/routes/dashboard');
-  const loggerModule = require('../../src/lib/logger');
+  const { createDashboardApiRouter } = require('../../../src/routes/dashboard');
+  const loggerModule = require('../../../src/lib/logger');
 
   const app = express();
   const logger = loggerModule.createLogger({
