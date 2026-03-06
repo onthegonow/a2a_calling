@@ -7,6 +7,7 @@ mod discovery;
 mod health;
 mod notifications;
 mod server;
+mod updater;
 
 #[tauri::command]
 async fn discover_server(app: tauri::AppHandle) -> Result<discovery::DiscoveryResult, String> {
@@ -38,6 +39,17 @@ fn restart_server(app: tauri::AppHandle) -> Result<server::StartResult, String> 
     Ok(result)
 }
 
+#[tauri::command]
+async fn check_update(app: tauri::AppHandle, force: bool) -> Result<(), String> {
+    updater::check_for_update(app, force).await;
+    Ok(())
+}
+
+#[tauri::command]
+async fn install_update(app: tauri::AppHandle) -> Result<(), String> {
+    updater::install_update(app).await
+}
+
 fn build_menu(app: &tauri::AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
     let about = PredefinedMenuItem::about(app, Some("About A2A Callbook"), Some(AboutMetadata {
         name: Some("A2A Callbook".into()),
@@ -61,10 +73,11 @@ fn build_menu(app: &tauri::AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
     let logs = MenuItem::with_id(app, "tab-logs", "Logs", true, Some("CmdOrCtrl+5"))?;
     let sep2 = PredefinedMenuItem::separator(app)?;
     let refresh = MenuItem::with_id(app, "refresh", "Refresh", true, Some("CmdOrCtrl+R"))?;
+    let check_updates = MenuItem::with_id(app, "check-updates", "Check for Updates\u{2026}", true, None::<&str>)?;
     let restart = MenuItem::with_id(app, "restart-server", "Restart Server", true, None::<&str>)?;
 
     let view_menu = Submenu::with_items(app, "View", true, &[
-        &contacts, &calls, &settings, &invites, &logs, &sep2, &refresh, &restart,
+        &contacts, &calls, &settings, &invites, &logs, &sep2, &refresh, &check_updates, &restart,
     ])?;
 
     // Edit menu (standard macOS)
@@ -91,8 +104,10 @@ pub fn run() {
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_window_state::Builder::new().build())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(server::SidecarState::new())
-        .invoke_handler(tauri::generate_handler![discover_server, start_server, restart_server])
+        .manage(updater::UpdateCheckState::new())
+        .invoke_handler(tauri::generate_handler![discover_server, start_server, restart_server, check_update, install_update])
         .setup(|app| {
             let menu = build_menu(app.handle())?;
             app.set_menu(menu)?;
@@ -112,6 +127,13 @@ pub fn run() {
                         if let Some(window) = app_handle.get_webview_window("main") {
                             let _ = window.eval("window.location.reload()");
                         }
+                        None
+                    }
+                    "check-updates" => {
+                        let handle = app_handle.clone();
+                        tauri::async_runtime::spawn(async move {
+                            updater::check_for_update(handle, true).await;
+                        });
                         None
                     }
                     "restart-server" => {
@@ -147,6 +169,14 @@ pub fn run() {
 
             // Start server-driven event listener for native notifications.
             notifications::start_event_stream_listener(app.handle().clone());
+
+            // A2A-100: Background update check after app launch (non-blocking)
+            let update_handle = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                // Small delay to let the app finish loading before checking
+                tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+                updater::check_for_update(update_handle, false).await;
+            });
 
             // Menu bar tray icon
             let show = MenuItem::with_id(app, "show", "Show A2A Callbook", true, None::<&str>)?;
