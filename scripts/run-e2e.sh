@@ -19,12 +19,20 @@ ALERT_ON_FAILURE=false
 for arg in "$@"; do
   case "$arg" in
     --alert) ALERT_ON_FAILURE=true ;;
+    --standalone) RUN_STANDALONE=true ;;
   esac
 done
 
 echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] Starting E2E orchestration..."
 
 cd "$PROJECT_DIR"
+
+# A2A-103: Standalone E2E lane — runs only standalone app tests.
+if [ "${RUN_STANDALONE:-false}" = true ]; then
+  echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] Running standalone E2E tests..."
+  node test/run.js --e2e --filter standalone
+  exit $?
+fi
 
 # A2A-42: Run orchestrator with JSON output and persistence.
 # stdout (JSON) goes to /dev/null; stderr (regression messages, logs) passes through

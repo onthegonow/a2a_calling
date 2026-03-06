@@ -186,6 +186,18 @@ The macOS DMG installer uses Tauri's built-in DMG bundler with custom configurat
 - Do NOT use third-party DMG tools — Tauri's bundler handles everything
 - Background design uses dashboard dark theme colors (#0B0E14, #151B28, #3B82F6)
 
+## Standalone App E2E Tests (A2A-103)
+
+End-to-end tests for the standalone app user journey live in `test/e2e/standalone-*.test.js`:
+- `standalone-onboarding` — first-run wizard flow via API
+- `standalone-workflows` — core dashboard operations after onboarding
+- `standalone-sidecar` — server lifecycle and crash recovery
+- `standalone-updater` — update manifest detection with mock server
+- Shared env: `test/e2e/helpers/standalone-env.js` creates isolated server instances with temp config
+- Run with `npm run test:e2e:standalone` or `node test/run.js --e2e --filter standalone`
+- All tests use `A2A_CONFIG_DIR` for isolation — no interference with real config
+- Tests must clean up spawned processes and temp files in afterEach
+
 ## Anti-Patterns
 
 - Do NOT use `console.log` outside the logger sink in `src/lib/logger.js`

@@ -29,6 +29,11 @@ jobs:
       - name: Run test suite
         run: npm test
 
+      - name: Run standalone E2E tests
+        run: npm run test:e2e:standalone
+        env:
+          A2A_RUNTIME: test
+
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
