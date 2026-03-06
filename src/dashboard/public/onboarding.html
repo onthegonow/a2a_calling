@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en" class="sl-theme-dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>A2A Callbook — Setup</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@shoelace-style/shoelace@2.19/cdn/themes/dark.css" />
+  <script type="module" src="https://cdn.jsdelivr.net/npm/@shoelace-style/shoelace@2.19/cdn/shoelace-autoloader.js"></script>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" />
+  <link rel="stylesheet" href="./onboarding.css">
+</head>
+<body class="sl-theme-dark">
+  <div class="onboard-container">
+    <div class="onboard-card">
+      <!-- Progress indicator -->
+      <div class="onboard-progress">
+        <div class="progress-step active" data-step="1"><span>1</span><label>Welcome</label></div>
+        <div class="progress-line"></div>
+        <div class="progress-step" data-step="2"><span>2</span><label>Topics</label></div>
+        <div class="progress-line"></div>
+        <div class="progress-step" data-step="3"><span>3</span><label>Permissions</label></div>
+        <div class="progress-line"></div>
+        <div class="progress-step" data-step="4"><span>4</span><label>Network</label></div>
+      </div>
+
+      <!-- Step 1: Welcome -->
+      <div class="wizard-step active" id="step-1">
+        <div class="step-icon">
+          <span class="material-symbols-outlined">phone_in_talk</span>
+        </div>
+        <h1>Welcome to A2A Callbook</h1>
+        <p class="step-desc">A2A Calling lets your AI agent communicate with other agents. Let's set up your agent in a few quick steps.</p>
+        <sl-input id="agent-name" label="Name your agent" placeholder="e.g. My Assistant" size="large" required></sl-input>
+      </div>
+
+      <!-- Step 2: Disclosure Topics -->
+      <div class="wizard-step" id="step-2">
+        <div class="step-icon">
+          <span class="material-symbols-outlined">topic</span>
+        </div>
+        <h1>What does your agent discuss?</h1>
+        <p class="step-desc">Select topics your agent can talk about with callers. You can customize per-tier topics later in Settings.</p>
+        <div class="topic-grid" id="topic-grid">
+          <!-- Populated by JS -->
+        </div>
+        <sl-input id="custom-topics" label="Custom topics (comma-separated)" placeholder="e.g. cooking, travel, finance" size="medium"></sl-input>
+      </div>
+
+      <!-- Step 3: Permissions -->
+      <div class="wizard-step" id="step-3">
+        <div class="step-icon">
+          <span class="material-symbols-outlined">verified_user</span>
+        </div>
+        <h1>Default Permission Tier</h1>
+        <p class="step-desc">Choose the default permission level for new contacts. You can change individual contacts later.</p>
+        <div class="tier-cards" id="tier-cards">
+          <!-- Populated by JS -->
+        </div>
+      </div>
+
+      <!-- Step 4: Network -->
+      <div class="wizard-step" id="step-4">
+        <div class="step-icon">
+          <span class="material-symbols-outlined">lan</span>
+        </div>
+        <h1>Network Configuration</h1>
+        <p class="step-desc">We'll auto-detect your network settings. You can adjust them if needed.</p>
+        <div class="network-fields">
+          <sl-input id="server-port" label="Server Port" type="number" size="medium"></sl-input>
+          <sl-input id="server-hostname" label="Hostname" placeholder="auto-detected" size="medium"></sl-input>
+          <div id="port-status" class="port-status"></div>
+        </div>
+      </div>
+
+      <!-- Navigation buttons -->
+      <div class="wizard-nav">
+        <sl-button id="btn-back" variant="default" size="large" style="display:none;">
+          <span class="material-symbols-outlined" slot="prefix">arrow_back</span>
+          Back
+        </sl-button>
+        <div class="nav-spacer"></div>
+        <sl-button id="btn-next" variant="primary" size="large">
+          Next
+          <span class="material-symbols-outlined" slot="suffix">arrow_forward</span>
+        </sl-button>
+      </div>
+
+      <!-- Error display -->
+      <div id="wizard-error" class="wizard-error" style="display:none;"></div>
+    </div>
+  </div>
+
+  <script src="./onboarding.js"></script>
+</body>
+</html>
