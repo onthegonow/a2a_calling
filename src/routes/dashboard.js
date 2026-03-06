@@ -557,9 +557,10 @@ function createDashboardApiRouter(options = {}) {
     const manifest = disc.generateDefaultManifest();
 
     // A2A-99: Map user-selected topics into the public tier (simplest useful default).
+    // Topics in the manifest are objects: { topic: string, description: string }.
     // Users can refine per-tier topics later in the Settings tab.
     if (topics.length > 0) {
-      manifest.tiers.public.topics = topics.slice(0, 15); // LIST_LIMITS.topics = 15
+      manifest.tiers.public.topics = topics.slice(0, 15).map(t => ({ topic: t, description: t }));
     }
 
     const validation = disc.validateDisclosureSubmission(manifest);
