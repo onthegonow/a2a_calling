@@ -502,6 +502,115 @@ function createDashboardApiRouter(options = {}) {
     });
   });
 
+  // A2A-99: Onboarding wizard — served before auth middleware so fresh installs can access it.
+  router.get('/onboarding', (req, res) => {
+    const onboardingPath = path.join(context.staticDir, 'onboarding.html');
+    if (!fs.existsSync(onboardingPath)) {
+      return res.status(500).send('Onboarding wizard UI missing');
+    }
+    return res.sendFile(onboardingPath);
+  });
+
+  // A2A-99: Onboarding status check — lets the wizard and native app check if onboarding is complete.
+  router.get('/onboarding/status', (req, res) => {
+    return res.json({
+      success: true,
+      onboarded: context.config.isOnboarded(),
+      onboarding: context.config.getOnboarding()
+    });
+  });
+
+  // A2A-99: Complete onboarding — writes config + disclosure manifest.
+  router.post('/onboarding/complete', async (req, res) => {
+    const body = req.body || {};
+
+    // Validate required fields
+    const agentName = sanitizeString(body.agentName || '', 120);
+    const defaultTier = sanitizeString(body.defaultTier || 'public', 20);
+    const port = Number.parseInt(String(body.port || ''), 10);
+    const hostname = sanitizeString(body.hostname || '', 200);
+
+    if (!agentName) {
+      return res.status(400).json({
+        success: false,
+        error: { code: 'missing_agent_name', message: 'Agent name is required.' }
+      });
+    }
+
+    if (!['public', 'friends', 'family'].includes(defaultTier)) {
+      return res.status(400).json({
+        success: false,
+        error: { code: 'invalid_tier', message: 'Default tier must be public, friends, or family.' }
+      });
+    }
+
+    if (!Number.isFinite(port) || port < 1 || port > 65535) {
+      return res.status(400).json({
+        success: false,
+        error: { code: 'invalid_port', message: 'Port must be between 1 and 65535.' }
+      });
+    }
+
+    // Build and validate disclosure manifest from selected topics
+    const disc = require('../lib/disclosure');
+    const topics = Array.isArray(body.topics) ? body.topics.map(t => sanitizeString(String(t), 100)).filter(Boolean) : [];
+    const manifest = disc.generateDefaultManifest();
+
+    // A2A-99: Map user-selected topics into the public tier (simplest useful default).
+    // Users can refine per-tier topics later in the Settings tab.
+    if (topics.length > 0) {
+      manifest.tiers.public.topics = topics.slice(0, 15); // LIST_LIMITS.topics = 15
+    }
+
+    const validation = disc.validateDisclosureSubmission(manifest);
+    if (!validation.valid) {
+      return res.status(400).json({
+        success: false,
+        error: { code: 'invalid_disclosure', message: validation.errors.join('; ') }
+      });
+    }
+
+    try {
+      // Write disclosure manifest
+      disc.saveManifest(manifest);
+
+      // Write config
+      const effectiveHostname = hostname || `localhost:${port}`;
+      context.config.setAgent({ name: agentName, hostname: effectiveHostname });
+      context.config.setDefaults({ defaultTier });
+      context.config.setOnboarding({ serverPort: port });
+      context.config.completeOnboarding();
+
+      context.logger.info('Onboarding completed via wizard', {
+        event: 'onboarding_complete',
+        data: { agentName, defaultTier, port, topicCount: topics.length }
+      });
+
+      return res.json({ success: true });
+    } catch (err) {
+      context.logger.error('Onboarding completion failed', {
+        event: 'onboarding_error',
+        data: { error: err.message }
+      });
+      return res.status(500).json({
+        success: false,
+        error: { code: 'onboarding_failed', message: 'Failed to save onboarding configuration.' }
+      });
+    }
+  });
+
+  // A2A-99: Port detection for onboarding network step.
+  router.get('/onboarding/detect-port', async (req, res) => {
+    const { findAvailablePort } = require('../lib/port-scanner');
+    const candidates = [80, 3001, 3002, 3003, 3007, 8080, 9001];
+    const port = await findAvailablePort(candidates);
+    return res.json({
+      success: true,
+      port: port,
+      candidates
+    });
+  });
+
   // All other dashboard API routes require owner access.
   router.use(ensureDashboardAccess);
 
