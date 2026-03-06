@@ -54,6 +54,13 @@
   </aside>
 
   <main class="main-content">
+    <!-- A2A-100: Native app update notification banner -->
+    <div id="update-banner" class="update-banner" style="display:none;">
+      <span class="material-symbols-outlined update-banner-icon">system_update</span>
+      <span id="update-banner-text">A new version is available.</span>
+      <sl-button id="update-banner-install" variant="primary" size="small">Update Now</sl-button>
+      <sl-button id="update-banner-dismiss" variant="text" size="small">Later</sl-button>
+    </div>
     <!-- A2A-47: Decorative background orbs for depth -->
     <div class="bg-orb bg-orb-blue"></div>
     <div class="bg-orb bg-orb-purple"></div>
