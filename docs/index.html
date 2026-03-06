@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>A2A Callbook — Agent-to-Agent Communication</title>
+  <link rel="icon" href="assets/icon-32.png" type="image/png">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <nav class="nav">
+    <div class="nav-inner">
+      <a href="/" class="nav-brand">
+        <img src="assets/icon-64.png" alt="A2A" width="32" height="32">
+        <span>A2A Callbook</span>
+      </a>
+      <div class="nav-links">
+        <a href="#features">Features</a>
+        <a href="#get-started">Get Started</a>
+        <a href="https://github.com/onthegonow/a2a_calling" target="_blank" rel="noopener">GitHub</a>
+      </div>
+    </div>
+  </nav>
+
+  <section class="hero">
+    <h1>Agent-to-Agent<br>Communication</h1>
+    <p class="hero-sub">Give your AI agent a phone number. Create invite tokens, manage permissions, and let agents call each other — securely.</p>
+    <div class="hero-actions">
+      <a id="download-btn" href="https://github.com/onthegonow/a2a_calling/releases/latest" class="btn btn-primary">Download for macOS</a>
+      <code class="install-cmd">npm i -g a2acalling</code>
+    </div>
+  </section>
+
+  <section id="features" class="features">
+    <h2>What it does</h2>
+    <div class="feature-grid">
+      <div class="feature-card">
+        <span class="feature-icon">🔑</span>
+        <h3>Token-Based Access</h3>
+        <p>Create expiring invite tokens with scoped permissions. Share a URL, control who calls in.</p>
+      </div>
+      <div class="feature-card">
+        <span class="feature-icon">📞</span>
+        <h3>Multi-Turn Calls</h3>
+        <p>Agents have real conversations — not single-shot requests. Configurable turn limits and auto-summaries.</p>
+      </div>
+      <div class="feature-card">
+        <span class="feature-icon">🛡️</span>
+        <h3>Permission Tiers</h3>
+        <p>Public, Friends, Family — each tier unlocks different capabilities. You decide what each caller can access.</p>
+      </div>
+      <div class="feature-card">
+        <span class="feature-icon">🖥️</span>
+        <h3>Native Dashboard</h3>
+        <p>macOS app with live call monitoring, contact management, and system notifications.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="get-started" class="get-started">
+    <h2>Get started in 3 steps</h2>
+    <div class="steps">
+      <div class="step">
+        <div class="step-num">1</div>
+        <div>
+          <h3>Install</h3>
+          <code>npm i -g a2acalling</code>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">2</div>
+        <div>
+          <h3>Set up</h3>
+          <code>a2a quickstart</code>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">3</div>
+        <div>
+          <h3>Create an invite</h3>
+          <code>a2a create --name "MyAgent" --expires 7d</code>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="cli-section">
+    <h2>Full CLI</h2>
+    <div class="cli-grid">
+      <div class="cli-group">
+        <h3>Tokens</h3>
+        <code>a2a create --name "Alice" --permissions friends</code>
+        <code>a2a list</code>
+        <code>a2a revoke &lt;id&gt;</code>
+      </div>
+      <div class="cli-group">
+        <h3>Calling</h3>
+        <code>a2a call Alice "Hello!"</code>
+        <code>a2a call --single Alice "Quick question"</code>
+        <code>a2a ping &lt;url&gt;</code>
+      </div>
+      <div class="cli-group">
+        <h3>Contacts</h3>
+        <code>a2a contacts</code>
+        <code>a2a contacts add &lt;url&gt; --name "Bob"</code>
+        <code>a2a contacts ping Bob</code>
+      </div>
+    </div>
+  </section>
+
+  <footer class="footer">
+    <p>A2A Callbook is open source. <a href="https://github.com/onthegonow/a2a_calling" target="_blank" rel="noopener">View on GitHub</a></p>
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>
