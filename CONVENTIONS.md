@@ -167,6 +167,16 @@ The onboarding wizard at `/api/a2a/dashboard/onboarding` runs on fresh installs 
 - `DiscoveryResult` in `discovery.rs` includes `onboarding_complete: bool` to let `native/macos/index.html` route to wizard vs dashboard
 - Topics selected in the wizard populate the `public` tier only — users refine per-tier topics in Settings
 
+## Native App Auto-Updater (A2A-100)
+
+The Tauri app uses `tauri-plugin-updater` to check for and install updates from GitHub Releases:
+- Update manifest (`latest.json`) is uploaded as a GitHub Release asset by CI
+- Background check runs 5 seconds after app launch, rate-limited to once per hour via `UpdateCheckState`
+- Manual check available from View → Check for Updates menu and Settings tab
+- Updates require user consent — banner shows in dashboard, user clicks "Update Now"
+- Signing key pair: private key in `TAURI_SIGNING_PRIVATE_KEY` GitHub secret, public key in `tauri.conf.json`
+- Do NOT auto-restart without user consent
+
 ## Anti-Patterns
 
 - Do NOT use `console.log` outside the logger sink in `src/lib/logger.js`

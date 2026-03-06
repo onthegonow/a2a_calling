@@ -1245,6 +1245,26 @@ sl-details::part(base) {
   }
 }
 
+/* A2A-100: Update notification banner */
+.update-banner {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.6rem 1rem;
+  background: rgba(59, 130, 246, 0.12);
+  border: 1px solid rgba(59, 130, 246, 0.3);
+  border-radius: 8px;
+  margin: 0 1.5rem 1rem;
+  font-size: 0.9rem;
+  position: relative;
+  z-index: 1;
+}
+
+.update-banner-icon {
+  font-size: 20px;
+  color: var(--accent);
+}
+
 /* ── A2A-47: Responsive — sidebar collapses at 1024px ──────── */
 @media (max-width: 1024px) {
   .sidebar {

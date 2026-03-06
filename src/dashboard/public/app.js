@@ -2647,3 +2647,37 @@ async function bootstrap() {
 }
 
 bootstrap();
+
+// A2A-100: Native app update events (only when running in Tauri)
+if (window.__TAURI__) {
+  const { listen } = window.__TAURI__.event;
+  const { invoke } = window.__TAURI__.core;
+
+  listen('update-status', (event) => {
+    const status = event.payload;
+    const banner = document.getElementById('update-banner');
+    const text = document.getElementById('update-banner-text');
+    if (status.available && status.version) {
+      text.textContent = `Version ${status.version} is available.`;
+      banner.style.display = 'flex';
+    }
+  });
+
+  document.getElementById('update-banner-install')?.addEventListener('click', async () => {
+    const btn = document.getElementById('update-banner-install');
+    btn.loading = true;
+    btn.disabled = true;
+    document.getElementById('update-banner-text').textContent = 'Downloading update...';
+    try {
+      await invoke('install_update');
+    } catch (err) {
+      document.getElementById('update-banner-text').textContent = 'Update failed: ' + (err || 'unknown error');
+      btn.loading = false;
+      btn.disabled = false;
+    }
+  });
+
+  document.getElementById('update-banner-dismiss')?.addEventListener('click', () => {
+    document.getElementById('update-banner').style.display = 'none';
+  });
+}

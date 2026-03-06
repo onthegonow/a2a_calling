@@ -22,7 +22,8 @@
     "active": true,
     "targets": [
       "dmg",
-      "app"
+      "app",
+      "updater"
     ],
     "externalBin": [
       "binaries/a2a-server"
@@ -45,6 +46,13 @@
           "a2a"
         ]
       }
+    },
+    "updater": {
+      "endpoints": [
+        "https://github.com/onthegonow/a2a_calling/releases/latest/download/latest.json"
+      ],
+      "pubkey": "PLACEHOLDER_REPLACE_WITH_ACTUAL_PUBLIC_KEY",
+      "dialog": false
     }
   }
 }
