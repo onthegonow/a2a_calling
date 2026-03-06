@@ -177,6 +177,15 @@ The Tauri app uses `tauri-plugin-updater` to check for and install updates from 
 - Signing key pair: private key in `TAURI_SIGNING_PRIVATE_KEY` GitHub secret, public key in `tauri.conf.json`
 - Do NOT auto-restart without user consent
 
+## DMG Installer Polish (A2A-101)
+
+The macOS DMG installer uses Tauri's built-in DMG bundler with custom configuration:
+- Background images: `dmg-background.png` (600x400) and `@2x` retina variant (1200x800) in `native/macos/src-tauri/`
+- DMG config in `tauri.conf.json` under `bundle.macOS.dmg`: window size, app/Applications positions
+- Icon set: all standard sizes (32, 128, 256, 512, 512@2x) in `native/macos/src-tauri/icons/`
+- Do NOT use third-party DMG tools — Tauri's bundler handles everything
+- Background design uses dashboard dark theme colors (#0B0E14, #151B28, #3B82F6)
+
 ## Anti-Patterns
 
 - Do NOT use `console.log` outside the logger sink in `src/lib/logger.js`
