@@ -1,0 +1,269 @@
+/* A2A-99: Onboarding wizard styles — reuses dashboard design tokens */
+:root {
+  --bg: #0B0E14;
+  --panel: #151B28;
+  --ink: #e2e8f0;
+  --ink-muted: #94a3b8;
+  --line: rgba(255, 255, 255, 0.08);
+  --accent: #3B82F6;
+  --card-bg: #1E2738;
+  --sl-color-primary-600: var(--accent);
+  --sl-font-sans: "Inter", "IBM Plex Sans", "Segoe UI", sans-serif;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: var(--sl-font-sans);
+  color: var(--ink);
+  background: var(--bg);
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.onboard-container {
+  width: 100%;
+  max-width: 640px;
+  padding: 1.5rem;
+}
+
+.onboard-card {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 2.5rem 2rem 2rem;
+}
+
+/* -- Progress indicator ---------------------------------------- */
+.onboard-progress {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0;
+  margin-bottom: 2rem;
+}
+
+.progress-step {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.progress-step span {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--card-bg);
+  border: 2px solid var(--line);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--ink-muted);
+  transition: all 0.2s;
+}
+
+.progress-step.active span,
+.progress-step.done span {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+.progress-step.done span {
+  background: #10B981;
+  border-color: #10B981;
+}
+
+.progress-step label {
+  font-size: 0.7rem;
+  color: var(--ink-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.progress-step.active label {
+  color: var(--ink);
+}
+
+.progress-line {
+  flex: 1;
+  height: 2px;
+  background: var(--line);
+  margin: 0 0.5rem;
+  margin-bottom: 1.2rem;
+}
+
+/* -- Wizard steps ------------------------------------------------ */
+.wizard-step {
+  display: none;
+  text-align: center;
+}
+
+.wizard-step.active {
+  display: block;
+}
+
+.step-icon {
+  margin-bottom: 0.8rem;
+}
+
+.step-icon .material-symbols-outlined {
+  font-size: 48px;
+  color: var(--accent);
+}
+
+.wizard-step h1 {
+  font-size: 1.5rem;
+  font-weight: 600;
+  margin: 0 0 0.5rem;
+}
+
+.step-desc {
+  color: var(--ink-muted);
+  font-size: 0.95rem;
+  margin: 0 0 1.5rem;
+  line-height: 1.5;
+}
+
+.wizard-step sl-input,
+.wizard-step sl-select {
+  text-align: left;
+  margin-bottom: 1rem;
+}
+
+/* -- Topic grid (Step 2) ---------------------------------------- */
+.topic-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+  text-align: left;
+}
+
+.topic-chip {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.5rem 0.75rem;
+  background: var(--card-bg);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 0.85rem;
+  transition: all 0.15s;
+  user-select: none;
+}
+
+.topic-chip:hover {
+  border-color: var(--accent);
+}
+
+.topic-chip.selected {
+  background: rgba(59, 130, 246, 0.15);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+.topic-chip .material-symbols-outlined {
+  font-size: 18px;
+}
+
+/* -- Tier cards (Step 3) ---------------------------------------- */
+.tier-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  text-align: left;
+}
+
+.tier-card {
+  padding: 1rem 1.2rem;
+  background: var(--card-bg);
+  border: 2px solid var(--line);
+  border-radius: 10px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.tier-card:hover {
+  border-color: var(--accent);
+}
+
+.tier-card.selected {
+  border-color: var(--accent);
+  background: rgba(59, 130, 246, 0.1);
+}
+
+.tier-card h3 {
+  margin: 0 0 0.3rem;
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.tier-card p {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--ink-muted);
+  line-height: 1.4;
+}
+
+/* -- Network fields (Step 4) ------------------------------------ */
+.network-fields {
+  text-align: left;
+}
+
+.network-fields sl-input {
+  margin-bottom: 1rem;
+}
+
+.port-status {
+  font-size: 0.85rem;
+  padding: 0.5rem 0;
+}
+
+.port-status.ok { color: #10B981; }
+.port-status.error { color: #EF4444; }
+.port-status.detecting { color: var(--ink-muted); }
+
+/* -- Navigation -------------------------------------------------- */
+.wizard-nav {
+  display: flex;
+  align-items: center;
+  margin-top: 2rem;
+  gap: 0.75rem;
+}
+
+.nav-spacer { flex: 1; }
+
+/* -- Error display ----------------------------------------------- */
+.wizard-error {
+  margin-top: 1rem;
+  padding: 0.75rem 1rem;
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  border-radius: 8px;
+  color: #EF4444;
+  font-size: 0.85rem;
+}
+
+/* -- Responsive -------------------------------------------------- */
+@media (max-width: 480px) {
+  .onboard-card {
+    padding: 1.5rem 1rem 1rem;
+    border-radius: 12px;
+  }
+
+  .topic-grid {
+    grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  }
+
+  .progress-step label {
+    display: none;
+  }
+}
