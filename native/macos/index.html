@@ -108,11 +108,14 @@
           show('status-connected');
           document.getElementById('connected-port').textContent =
             `localhost:${result.port}`;
-          // Navigate to live SPA
+          // A2A-99: Route to onboarding wizard if not yet completed,
+          // otherwise navigate to the dashboard SPA.
+          const baseUrl = `http://127.0.0.1:${result.port}/api/a2a/dashboard/`;
+          const target = (result.onboarding_complete === false)
+            ? baseUrl + 'onboarding'
+            : baseUrl + (window.__TAB_HASH || '');
           setTimeout(() => {
-            window.location.href =
-              `http://127.0.0.1:${result.port}/api/a2a/dashboard/` +
-              (window.__TAB_HASH || '');
+            window.location.href = target;
           }, 400);
         } else {
           show('status-not-found');
