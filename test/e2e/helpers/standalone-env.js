@@ -5,7 +5,6 @@
  * the full standalone app user journey via HTTP API.
  */
 const http = require('http');
-const path = require('path');
 const { createE2EEnv } = require('../env');
 
 /**
