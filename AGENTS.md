@@ -114,7 +114,22 @@ node bin/cli.js create --name "Test" --expires 1h
 
 # Test library
 node -e "const a2a = require('./src'); console.log(a2a.version)"
+
+# Bootstrap Serena for the current GT worktree
+npm run serena:init
+
+# Check Serena status without rewriting project.yml
+npm run serena:check
 ```
+
+## Serena in Gas Town
+
+Serena is registered machine-wide for Codex via `--project-from-cwd`, so each GT clone/worktree needs its own local `.serena/project.yml`.
+
+- Run `npm run serena:init` from the repo root of the worktree you are actually using.
+- Run `npm run serena:init -- --all-worktrees` if you want to provision every git worktree attached to the current repo.
+- Run `npm run serena:init -- /root/gt/a2acalling/mayor/rig` to provision the standalone GT clone that is not part of the local git worktree list.
+- Do not commit `.serena/`; `.gitignore` already protects it.
 
 ## Key Design Decisions
 

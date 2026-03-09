@@ -118,6 +118,26 @@ Setup behavior:
 - Setup inspects port 80 and prints reverse proxy guidance for stable internet-facing ingress.
 - Setup prints the exact dashboard URL at the end.
 
+### Serena in Gas Town Worktrees
+
+Gas Town worktrees need their own local `.serena/project.yml` because Serena is registered machine-wide with `--project-from-cwd`, but `.serena/` stays local and gitignored per checkout.
+
+```bash
+# Bootstrap the current repo/worktree and verify Serena from this cwd
+npm run serena:init
+
+# Check an existing worktree without rewriting it
+npm run serena:check
+
+# Sweep the current repo's git worktrees from any one checkout
+npm run serena:init -- --all-worktrees
+
+# Bootstrap the standalone GT clone explicitly if needed
+npm run serena:init -- /root/gt/a2acalling/mayor/rig
+```
+
+Use `npm run serena:init -- --force <path>` if a GT clone drifted and you want to rewrite the managed `project.yml`.
+
 Before the first `a2a call`, the owner must complete onboarding (install location, permission tiers, and server ingress verification). Run:
 
 ```bash

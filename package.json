@@ -9,6 +9,8 @@
   },
   "scripts": {
     "postinstall": "node scripts/postinstall.js",
+    "serena:init": "node scripts/bootstrap-serena.js",
+    "serena:check": "node scripts/bootstrap-serena.js --check",
     "start": "node src/server.js",
     "test": "node test/run.js",
     "test:coverage": "c8 node test/run.js",
