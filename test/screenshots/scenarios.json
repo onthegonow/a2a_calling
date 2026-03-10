@@ -1,0 +1,93 @@
+[
+  {
+    "name": "contacts-tab",
+    "url": "http://127.0.0.1:3001/dashboard/",
+    "viewport": "1280x720",
+    "actions": [
+      { "type": "wait", "ms": 1500 }
+    ],
+    "wait": 500,
+    "fullPage": false
+  },
+  {
+    "name": "calls-tab",
+    "url": "http://127.0.0.1:3001/dashboard/",
+    "viewport": "1280x720",
+    "actions": [
+      { "type": "wait", "ms": 1000 },
+      { "type": "click", "selector": "[data-panel='calls']" }
+    ],
+    "wait": 1500,
+    "fullPage": false
+  },
+  {
+    "name": "permissions-tab",
+    "url": "http://127.0.0.1:3001/dashboard/",
+    "viewport": "1280x720",
+    "actions": [
+      { "type": "wait", "ms": 1000 },
+      { "type": "click", "selector": "[data-panel='permissions']" },
+      { "type": "wait", "ms": 1500 },
+      {
+        "type": "evaluate",
+        "script": "var tc=document.getElementById('topic-count'); if(tc) tc.textContent='0 Active'; var gc=document.getElementById('goal-count'); if(gc) gc.textContent='0 Active'; var tz=document.getElementById('active-topics-zone'); if(tz) tz.innerHTML='<div class=\"drop-placeholder\"><span>+ Drop Topic</span></div>'; var gz=document.getElementById('active-goals-zone'); if(gz) gz.innerHTML='<div class=\"drop-placeholder\"><span>+ Drop Goal</span></div>';"
+      }
+    ],
+    "wait": 500,
+    "fullPage": false
+  },
+  {
+    "name": "invites-tab",
+    "url": "http://127.0.0.1:3001/dashboard/",
+    "viewport": "1280x720",
+    "actions": [
+      { "type": "wait", "ms": 1000 },
+      { "type": "click", "selector": "[data-panel='invites']" }
+    ],
+    "wait": 1500,
+    "fullPage": false
+  },
+  {
+    "name": "logs-tab",
+    "url": "http://127.0.0.1:3001/dashboard/",
+    "viewport": "1280x720",
+    "actions": [
+      { "type": "wait", "ms": 1000 },
+      { "type": "click", "selector": "[data-panel='logs']" },
+      { "type": "wait", "ms": 1500 },
+      {
+        "type": "evaluate",
+        "script": "document.querySelectorAll('#logs-table tbody tr').forEach(tr => { const td = tr.querySelector('td'); if (td) td.textContent = '1/1/2000, 12:00:00 AM'; }); const stats = document.getElementById('log-stats'); if (stats) stats.innerHTML = '<div class=\"row\"><strong>Total:</strong> 0</div><div class=\"row\"><strong>By level:</strong> (none)</div><div class=\"row\"><strong>Top components:</strong> (none)</div>';"
+      }
+    ],
+    "wait": 500,
+    "fullPage": false
+  },
+  {
+    "name": "health-tab",
+    "url": "http://127.0.0.1:3001/dashboard/",
+    "viewport": "1280x720",
+    "actions": [
+      { "type": "wait", "ms": 1000 },
+      { "type": "click", "selector": "[data-panel='health']" }
+    ],
+    "wait": 1500,
+    "fullPage": false
+  },
+  {
+    "name": "settings-tab",
+    "url": "http://127.0.0.1:3001/dashboard/",
+    "viewport": "1280x720",
+    "actions": [
+      { "type": "wait", "ms": 1000 },
+      { "type": "click", "selector": "[data-panel='settings']" },
+      { "type": "wait", "ms": 1500 },
+      {
+        "type": "evaluate",
+        "script": "document.querySelectorAll('.mono').forEach(el => { if (el.textContent.includes('checked')) el.textContent = el.textContent.replace(/checked [^,)]+/g, 'checked 1/1/2000, 12:00:00 AM'); });"
+      }
+    ],
+    "wait": 500,
+    "fullPage": false
+  }
+]
