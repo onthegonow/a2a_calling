@@ -286,6 +286,33 @@ class ConversationDriver {
     // Placeholder until we get a real ID from the remote (or generate one)
     conversationId = `conv_${Date.now()}_local`;
 
+    // A2A-LOCAL: detect when calling a local endpoint to avoid dual-write echo.
+    // When caller and callee share the same conversation DB (same machine),
+    // both the server and the driver write messages for the same conversation_id
+    // from opposite perspectives, creating a "hall of mirrors" echo artifact.
+    // Skip driver-side DB writes when the target is local — the server already stores them.
+    const isLocalEndpoint = (() => {
+      try {
+        let host;
+        if (typeof this.endpoint === 'string') {
+          const parsed = require('./client').A2AClient.parseInvite(this.endpoint);
+          host = parsed.host;
+        } else {
+          host = this.endpoint.host;
+        }
+        const h = String(host || '').split(':')[0].toLowerCase();
+        return h === 'localhost' || h === '127.0.0.1' || h === '::1' || h.startsWith('127.');
+      } catch (_) {
+        return false;
+      }
+    })();
+    if (isLocalEndpoint) {
+      logger.info('Local endpoint detected — driver will skip DB writes to prevent echo', {
+        event: 'driver_local_endpoint_detected',
+        data: { endpoint: typeof this.endpoint === 'string' ? this.endpoint : this.endpoint.host }
+      });
+    }
+
     let nextMessage = openingMessage;
     const overlapHistory = [];
 
@@ -305,8 +332,8 @@ class ConversationDriver {
         break;
       }
 
-      // Start DB conversation on first turn
-      if (turn === 0 && this.convStore && !dbConversationStarted) {
+      // Start DB conversation on first turn (skip for local endpoints — server already created it)
+      if (turn === 0 && this.convStore && !dbConversationStarted && !isLocalEndpoint) {
         // Prefer remote's conversation ID, fall back to generated local one
         if (remoteResponse.conversation_id) {
           conversationId = remoteResponse.conversation_id;
@@ -326,13 +353,16 @@ class ConversationDriver {
         } else {
           dbConversationStarted = true;
         }
+      } else if (turn === 0 && isLocalEndpoint && remoteResponse.conversation_id) {
+        // For local endpoints, still track the conversation ID for the transcript
+        conversationId = remoteResponse.conversation_id;
       }
 
       const remoteText = remoteResponse.response || '';
       const remoteContinue = remoteResponse.can_continue !== false;
 
-      // 2. Store messages in DB (only if conversation was started in DB)
-      if (this.convStore && dbConversationStarted) {
+      // 2. Store messages in DB (skip for local endpoints — server already stores them)
+      if (this.convStore && dbConversationStarted && !isLocalEndpoint) {
         const outMsg = this.convStore.addMessage(conversationId, {
           direction: 'outbound',
           role: 'user',
@@ -537,14 +567,16 @@ class ConversationDriver {
         }
       }
 
-      // 7b. Store flags from claude subagent responses
-      if (turnMeta?.flags?.length > 0 && this.convStore && dbConversationStarted) {
-        this.convStore.addMessage(conversationId, {
-          direction: 'outbound',
-          role: 'system',
-          content: `[flags] ${turnMeta.flags.map(f => f.content || f.type).join('; ')}`,
-          metadata: JSON.stringify({ flags: turnMeta.flags, turn: turn + 1 })
-        });
+      // 7b. Store flags from claude subagent responses (skip for local to avoid echo)
+      if (turnMeta?.flags?.length > 0 && this.convStore && (dbConversationStarted || isLocalEndpoint)) {
+        if (!isLocalEndpoint) {
+          this.convStore.addMessage(conversationId, {
+            direction: 'outbound',
+            role: 'system',
+            content: `[flags] ${turnMeta.flags.map(f => f.content || f.type).join('; ')}`,
+            metadata: JSON.stringify({ flags: turnMeta.flags, turn: turn + 1 })
+          });
+        }
       }
 
       // onTurn callback for progress output

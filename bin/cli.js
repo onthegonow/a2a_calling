@@ -1581,7 +1581,9 @@ a2a add "${inviteUrl}" "${ownerText || 'friend'}" && a2a call "${ownerText || 'f
       }
 
       // A2A-52: load keypair for request signing in multi-turn calls
-      const _multiKeypair = config.getKeypair();
+      let _multiKeypairConfig;
+      try { const { A2AConfig } = require('../src/lib/config'); _multiKeypairConfig = new A2AConfig(); } catch (e) {}
+      const _multiKeypair = _multiKeypairConfig ? _multiKeypairConfig.getKeypair() : null;
       const driver = new ConversationDriver({
         runtime,
         agentContext,
@@ -1636,7 +1638,9 @@ a2a add "${inviteUrl}" "${ownerText || 'friend'}" && a2a call "${ownerText || 'f
 
     // Single-shot call (existing behavior)
     // A2A-52: load keypair for request signing
-    const _callKeypair = config.getKeypair();
+    let _callConfig;
+    try { const { A2AConfig } = require('../src/lib/config'); _callConfig = new A2AConfig(); } catch (e) {}
+    const _callKeypair = _callConfig ? _callConfig.getKeypair() : null;
     const client = new A2AClient({
       caller: { name: callerName },
       privateKey: _callKeypair ? _callKeypair.privateKey : null,
@@ -1652,9 +1656,21 @@ a2a add "${inviteUrl}" "${ownerText || 'friend'}" && a2a call "${ownerText || 'f
         store.updateContactStatus(contactName, 'online');
       }
 
-      // Persist conversation locally
+      // Persist conversation locally (skip for local endpoints — server already stored them)
+      const { A2AClient: _A2AClientSingle } = require('../src/lib/client');
+      let _singleHost;
+      try {
+        if (url.startsWith('a2a://')) {
+          _singleHost = _A2AClientSingle.parseInvite(url).host;
+        } else {
+          _singleHost = url;
+        }
+      } catch (_) { _singleHost = url; }
+      const _singleHostname = String(_singleHost || '').split(':')[0].toLowerCase();
+      const _isLocalSingle = _singleHostname === 'localhost' || _singleHostname === '127.0.0.1' || _singleHostname === '::1' || _singleHostname.startsWith('127.');
+
       const cs = getConvStore();
-      if (cs) {
+      if (cs && !_isLocalSingle) {
         try {
           // Use remote conversation ID if provided, otherwise generate a local one
           const convId = response.conversation_id || `conv_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
